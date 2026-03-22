@@ -13,14 +13,20 @@ _MARGIN = 16
 _QR_SIZE = 200
 
 _CAT_ART = r"""
-  /\_/\
- ( o.o )
-  > ^ <
- /|   |\
-(_|   |_)
+    ██╗        ██╗
+   ██╔╝ ██████ ╚██╗
+  ██╔╝ ████████ ╚██╗
+ ██║  ██╗    ██╗  ██║
+ ██║  ╚═╝ ██ ╚═╝  ██║
+ ██║ ═══╗ ╔╗ ╔═══ ██║
+ ╚██╗ ══╩═╝╚═╩══ ██╔╝
+  ╚██╗ ████████ ██╔╝
+   ╚██╗ ══════ ██╔╝
+    ╚██████████╔╝
 """.strip("\n")
 
-_TITLE = "cinegatto"
+_TITLE = "c i n e g a t t o"
+_GITHUB_URL = "github.com/sleeepyjack/cinegatto"
 
 
 def _find_mono_font(size):
@@ -53,8 +59,24 @@ def _rgba_to_bgra_file(img):
     return tmp.name, width, height
 
 
-def _generate_text_overlay(text, font_size=18, color=(255, 255, 255, 230)):
-    """Render multi-line text to an RGBA image with semi-transparent background."""
+def _generate_text_overlay(text, font_size=18, color=(255, 255, 255, 230),
+                           target_height=None):
+    """Render multi-line text to an RGBA image with semi-transparent background.
+
+    If target_height is given, scales the font to roughly match that height.
+    """
+    if target_height:
+        # Binary search for font size that fills the target height
+        for fs in range(30, 8, -1):
+            font = _find_mono_font(fs)
+            tmp_img = Image.new("RGBA", (1, 1))
+            tmp_draw = ImageDraw.Draw(tmp_img)
+            bbox = tmp_draw.multiline_textbbox((0, 0), text, font=font)
+            th = bbox[3] - bbox[1] + _MARGIN * 2
+            if th <= target_height:
+                font_size = fs
+                break
+
     font = _find_mono_font(font_size)
     # Measure text
     tmp_img = Image.new("RGBA", (1, 1))
@@ -110,9 +132,14 @@ def _generate_qr_with_url(url, size=_QR_SIZE):
 
 def apply_overlays(ipc, url, screen_width=1920, screen_height=1080):
     """Apply ASCII art (left) and QR code with URL (right) overlays."""
-    # Left: cat ASCII art + title
-    art_text = _CAT_ART + "\n\n " + _TITLE
-    art_img = _generate_text_overlay(art_text, font_size=20)
+    # Generate QR first to know target height
+    qr_img = _generate_qr_with_url(url)
+    target_h = qr_img.size[1]
+
+    # Left: cat ASCII art + title + github url
+    art_text = _CAT_ART + "\n\n" + _TITLE + "\n" + _GITHUB_URL
+    # Scale font to roughly match QR overlay height
+    art_img = _generate_text_overlay(art_text, font_size=16, target_height=target_h)
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
 
     # Right: QR code + URL
