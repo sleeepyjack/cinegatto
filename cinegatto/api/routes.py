@@ -1,0 +1,64 @@
+"""Flask blueprint for the cinegatto REST API."""
+
+import logging
+
+from flask import Blueprint, jsonify, request
+
+logger = logging.getLogger("cinegatto.api")
+
+api = Blueprint("api", __name__, url_prefix="/api")
+
+# Controller is injected via init_app
+_controller = None
+_ring_handler = None
+
+
+def init_api(controller, ring_handler=None):
+    """Inject the PlaybackController and optional ring buffer handler."""
+    global _controller, _ring_handler
+    _controller = controller
+    _ring_handler = ring_handler
+
+
+@api.route("/play", methods=["POST"])
+def play():
+    logger.info("API: play")
+    _controller.play()
+    return jsonify({"status": "ok"})
+
+
+@api.route("/pause", methods=["POST"])
+def pause():
+    logger.info("API: pause")
+    _controller.pause()
+    return jsonify({"status": "ok"})
+
+
+@api.route("/next", methods=["POST"])
+def next_video():
+    logger.info("API: next")
+    _controller.next_video()
+    return jsonify({"status": "ok"})
+
+
+@api.route("/previous", methods=["POST"])
+def previous_video():
+    logger.info("API: previous")
+    _controller.previous_video()
+    return jsonify({"status": "ok"})
+
+
+@api.route("/status", methods=["GET"])
+def status():
+    return jsonify(_controller.get_status())
+
+
+@api.route("/logs", methods=["GET"])
+def logs():
+    if _ring_handler is None:
+        return jsonify({"entries": []})
+    level = request.args.get("level", None)
+    limit = request.args.get("limit", 100, type=int)
+    limit = min(limit, 500)
+    entries = _ring_handler.get_entries(level=level, limit=limit)
+    return jsonify({"entries": entries})
