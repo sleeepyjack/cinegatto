@@ -1,11 +1,13 @@
 """End-to-end smoke test: HTTP request → controller → mocked player."""
 
+import os
 from unittest.mock import MagicMock
 
 import pytest
 from flask import Flask
 
 from cinegatto.api.routes import api, init_api
+from cinegatto.cache.manager import CacheManager
 from cinegatto.controller import PlaybackController
 from cinegatto.display.noop import NoopDisplay
 from cinegatto.player.types import PlayerState
@@ -78,3 +80,60 @@ class TestIntegration:
         data = resp.get_json()
         assert data["playing"] is True
         assert data["video_title"] == "Birds"
+
+
+class TestCacheIntegration:
+    def test_cache_hit_plays_local_file(self, tmp_path):
+        """When video is cached, player receives local file path."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        entries = [{"id": "vid1", "title": "Birds", "url": "https://youtube.com/watch?v=vid1"}]
+        selector = Selector(entries)
+        display = NoopDisplay()
+
+        # Set up cache with a pre-cached video
+        cache = CacheManager(str(tmp_path / "cache"), 1024 * 1024 * 100)
+        cached_file = os.path.join(str(tmp_path / "cache"), "vid1.mp4")
+        with open(cached_file, "wb") as f:
+            f.write(b"\x00" * 100)
+        cache.register("vid1", cached_file, 100)
+
+        controller = PlaybackController(
+            player=player, selector=selector, display=display,
+            random_start=False, cache_manager=cache,
+        )
+        controller.start()
+        try:
+            controller.next_video()
+            controller._queue.join()
+            player.load_video.assert_called_once()
+            loaded_path = player.load_video.call_args[0][0]
+            assert loaded_path == cached_file
+        finally:
+            controller.stop()
+
+    def test_cache_miss_streams_and_enqueues(self, tmp_path):
+        """When video is not cached, player gets YouTube URL and download is enqueued."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        entries = [{"id": "vid1", "title": "Birds", "url": "https://youtube.com/watch?v=vid1"}]
+        selector = Selector(entries)
+        display = NoopDisplay()
+        cache = CacheManager(str(tmp_path / "cache"), 1024 * 1024 * 100)
+        downloader = MagicMock()
+
+        controller = PlaybackController(
+            player=player, selector=selector, display=display,
+            random_start=False, cache_manager=cache, downloader=downloader,
+        )
+        controller.start()
+        try:
+            controller.next_video()
+            controller._queue.join()
+            player.load_video.assert_called_once()
+            loaded_url = player.load_video.call_args[0][0]
+            assert "youtube.com" in loaded_url
+            # Download should be enqueued (for the played video + prefetch)
+            assert downloader.enqueue.called
+        finally:
+            controller.stop()

@@ -57,6 +57,29 @@ class Selector:
             logger.debug("Going to previous", extra={"video_id": prev["id"], "title": prev["title"]})
             return prev
 
+    def peek_next(self, n: int = 1) -> list[dict]:
+        """Preview the next N videos without advancing playback.
+
+        In sequential mode, peeks at the next indices.
+        In shuffle mode, returns random picks (not committed to history).
+        """
+        with self._lock:
+            if not self._entries:
+                return []
+            if self._shuffle:
+                return [random.choice(self._entries) for _ in range(min(n, len(self._entries)))]
+            else:
+                result = []
+                for i in range(n):
+                    idx = (self._index + i) % len(self._entries)
+                    result.append(self._entries[idx])
+                return result
+
+    def get_all_entries(self) -> list[dict]:
+        """Return a copy of all playlist entries."""
+        with self._lock:
+            return list(self._entries)
+
     def update_entries(self, entries: list[dict]) -> None:
         """Update the playlist entries (e.g., after a refresh)."""
         with self._lock:

@@ -122,10 +122,23 @@ def run(config_path: str = None) -> None:
     except Exception:
         logger.warning("Could not apply overlays")
 
+    # Cache setup
+    cache_manager = None
+    downloader = None
+    if config["cache_enabled"]:
+        from cinegatto.cache.manager import CacheManager
+        from cinegatto.cache.downloader import Downloader
+        cache_path = os.path.expanduser(config["cache_path"])
+        max_bytes = int(config["cache_max_size_gb"] * 1024**3)
+        cache_manager = CacheManager(cache_path, max_bytes)
+        downloader = Downloader(cache_manager, config["cache_format"])
+        downloader.start()
+
     selector = Selector(entries, shuffle=config["shuffle"])
     controller = PlaybackController(
         player=player, selector=selector, display=display,
         random_start=config["random_start"],
+        cache_manager=cache_manager, downloader=downloader,
     )
     controller_ref[0] = controller
     controller.start()
@@ -134,7 +147,7 @@ def run(config_path: str = None) -> None:
     app = Flask(__name__,
                 static_folder=os.path.join(os.path.dirname(__file__), "web", "static"),
                 static_url_path="/static")
-    init_api(controller, ring_handler)
+    init_api(controller, ring_handler, cache_manager=cache_manager)
     app.register_blueprint(api)
 
     @app.route("/")
@@ -145,6 +158,8 @@ def run(config_path: str = None) -> None:
     def shutdown_handler(signum, frame):
         logger.info("Received signal %s, shutting down", signum)
         controller.stop()
+        if downloader:
+            downloader.stop()
         player.shutdown()
         sys.exit(0)
 
@@ -154,7 +169,7 @@ def run(config_path: str = None) -> None:
     # Start periodic playlist refresh
     refresh_thread = threading.Thread(
         target=_playlist_refresh_loop,
-        args=(playlist_url, selector),
+        args=(playlist_url, selector, cache_manager),
         daemon=True,
         name="playlist-refresh",
     )
@@ -182,12 +197,16 @@ def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
             logger.debug("Standby retry failed: %s", e)
 
 
-def _playlist_refresh_loop(playlist_url: str, selector: Selector, interval: float = 1800) -> None:
+def _playlist_refresh_loop(playlist_url: str, selector: Selector,
+                           cache_manager=None, interval: float = 1800) -> None:
     """Periodically re-fetch playlist metadata (every 30 min by default)."""
     while True:
         time.sleep(interval)
         try:
             entries = fetch_playlist(playlist_url)
             selector.update_entries(entries)
+            if cache_manager:
+                playlist_ids = {e["id"] for e in entries}
+                cache_manager.cleanup(playlist_ids)
         except Exception as e:
             logger.warning("Playlist refresh failed: %s", e)

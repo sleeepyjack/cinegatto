@@ -11,13 +11,15 @@ api = Blueprint("api", __name__, url_prefix="/api")
 # Controller is injected via init_app
 _controller = None
 _ring_handler = None
+_cache_manager = None
 
 
-def init_api(controller, ring_handler=None):
+def init_api(controller, ring_handler=None, cache_manager=None):
     """Inject the PlaybackController and optional ring buffer handler."""
-    global _controller, _ring_handler
+    global _controller, _ring_handler, _cache_manager
     _controller = controller
     _ring_handler = ring_handler
+    _cache_manager = cache_manager
 
 
 @api.route("/play", methods=["POST"])
@@ -67,6 +69,15 @@ def update_settings():
         _controller.set_random_start(bool(data["random_start"]))
     logger.info("API: settings updated", extra={"settings": data})
     return jsonify(_controller.get_settings())
+
+
+@api.route("/cache", methods=["GET"])
+def cache():
+    if _cache_manager is None:
+        return jsonify({"enabled": False})
+    stats = _cache_manager.get_stats()
+    stats["enabled"] = True
+    return jsonify(stats)
 
 
 @api.route("/logs", methods=["GET"])

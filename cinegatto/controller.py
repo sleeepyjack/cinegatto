@@ -20,11 +20,14 @@ class PlaybackController:
     All mutations go through the queue. Status reads are non-blocking.
     """
 
-    def __init__(self, player, selector, display, random_start: bool = True):
+    def __init__(self, player, selector, display, random_start: bool = True,
+                 cache_manager=None, downloader=None):
         self._player = player
         self._selector = selector
         self._display = display
         self._random_start = random_start
+        self._cache_manager = cache_manager
+        self._downloader = downloader
         self._queue: queue.Queue = queue.Queue()
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
@@ -142,9 +145,29 @@ class PlaybackController:
         self._load_video(video)
 
     def _load_video(self, video: dict) -> None:
-        """Load a video, using mpv's start= option for random seek."""
+        """Load a video from cache or YouTube, with optional random seek."""
         start_percent = None
         if self._random_start:
             start_percent = random.uniform(0, 80.0)
             logger.info("Random start", extra={"start_percent": round(start_percent, 1)})
-        self._player.load_video(video["url"], start_percent=start_percent)
+
+        # Check cache
+        cached_path = None
+        if self._cache_manager:
+            cached_path = self._cache_manager.is_cached(video["id"])
+
+        if cached_path:
+            logger.info("Playing from cache", extra={"video_id": video["id"], "path": cached_path})
+            self._player.load_video(cached_path, start_percent=start_percent)
+            self._cache_manager.touch(video["id"])
+        else:
+            logger.info("Streaming from YouTube", extra={"video_id": video["id"]})
+            self._player.load_video(video["url"], start_percent=start_percent)
+            # Enqueue background download
+            if self._downloader:
+                self._downloader.enqueue(video["id"], video["url"])
+
+        # Pre-fetch next video
+        if self._downloader:
+            for entry in self._selector.peek_next(n=1):
+                self._downloader.enqueue(entry["id"], entry["url"])

@@ -77,6 +77,37 @@ class TestSelector:
         for _ in range(10):
             assert selector.pick() in entries
 
+    def test_peek_next_sequential(self):
+        entries = self._sample_entries(5)
+        selector = Selector(entries, shuffle=False)
+        peeked = selector.peek_next(n=2)
+        assert len(peeked) == 2
+        assert peeked[0] == entries[0]
+        assert peeked[1] == entries[1]
+        # peek should not advance the index
+        pick = selector.pick()
+        assert pick == entries[0]
+
+    def test_peek_next_shuffle(self):
+        entries = self._sample_entries(5)
+        selector = Selector(entries, shuffle=True)
+        peeked = selector.peek_next(n=1)
+        assert len(peeked) == 1
+        assert peeked[0] in entries
+
+    def test_peek_next_empty(self):
+        selector = Selector([])
+        assert selector.peek_next(n=1) == []
+
+    def test_get_all_entries(self):
+        entries = self._sample_entries(5)
+        selector = Selector(entries)
+        result = selector.get_all_entries()
+        assert result == entries
+        # Should be a copy
+        result.append({"id": "extra"})
+        assert len(selector.get_all_entries()) == 5
+
 
 class TestFetchPlaylist:
     @patch("cinegatto.playlist.fetcher.yt_dlp.YoutubeDL")
