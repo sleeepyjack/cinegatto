@@ -53,6 +53,22 @@ def status():
     return jsonify(_controller.get_status())
 
 
+@api.route("/settings", methods=["GET"])
+def get_settings():
+    return jsonify(_controller.get_settings())
+
+
+@api.route("/settings", methods=["POST"])
+def update_settings():
+    data = request.get_json(silent=True) or {}
+    if "shuffle" in data:
+        _controller.set_shuffle(bool(data["shuffle"]))
+    if "random_start" in data:
+        _controller.set_random_start(bool(data["random_start"]))
+    logger.info("API: settings updated", extra={"settings": data})
+    return jsonify(_controller.get_settings())
+
+
 @api.route("/logs", methods=["GET"])
 def logs():
     if _ring_handler is None:

@@ -74,10 +74,19 @@ class MpvPlayer:
             logger.debug("Removing stale socket", extra={"path": self._socket_path})
             os.unlink(self._socket_path)
 
-    def load_video(self, url: str) -> None:
-        """Load a video URL into mpv."""
-        logger.info("Loading video", extra={"url": url})
-        self._ipc.command("loadfile", url)
+    def load_video(self, url: str, start_percent: float = None) -> None:
+        """Load a video URL into mpv.
+
+        If start_percent is given (0-100), mpv will seek to that percentage
+        after the file loads internally — no need to wait for file-loaded.
+        """
+        if start_percent is not None:
+            options = f"start={start_percent:.1f}%"
+            logger.info("Loading video", extra={"url": url, "start": f"{start_percent:.1f}%"})
+            self._ipc.command("loadfile", url, "replace", options)
+        else:
+            logger.info("Loading video", extra={"url": url})
+            self._ipc.command("loadfile", url)
 
     def play(self) -> None:
         """Resume playback."""

@@ -67,6 +67,23 @@ class PlaybackController:
         """Called when the current video ends — queues next video."""
         self._queue.put(("next",))
 
+    def set_shuffle(self, enabled: bool) -> None:
+        """Toggle shuffle mode on the selector."""
+        self._selector._shuffle = enabled
+        logger.info("Shuffle set", extra={"shuffle": enabled})
+
+    def set_random_start(self, enabled: bool) -> None:
+        """Toggle random start position."""
+        self._random_start = enabled
+        logger.info("Random start set", extra={"random_start": enabled})
+
+    def get_settings(self) -> dict:
+        """Return current playback settings."""
+        return {
+            "shuffle": self._selector._shuffle,
+            "random_start": self._random_start,
+        }
+
     def get_status(self) -> dict:
         """Non-blocking read of current player state."""
         return self._player.get_state().to_dict()
@@ -114,7 +131,7 @@ class PlaybackController:
     def _do_next(self) -> None:
         video = self._selector.pick()
         logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
-        self._load_and_seek(video)
+        self._load_video(video)
 
     def _do_previous(self) -> None:
         video = self._selector.previous()
@@ -122,19 +139,12 @@ class PlaybackController:
             logger.info("No previous video in history")
             return
         logger.info("Playing previous video", extra={"video_id": video["id"], "title": video["title"]})
-        self._load_and_seek(video)
+        self._load_video(video)
 
-    def _load_and_seek(self, video: dict) -> None:
-        """Load a video and optionally seek to a random position."""
-        self._player.load_video(video["url"])
+    def _load_video(self, video: dict) -> None:
+        """Load a video, using mpv's start= option for random seek."""
+        start_percent = None
         if self._random_start:
-            # Wait briefly for mpv to report duration, then seek
-            time.sleep(0.5)
-            try:
-                state = self._player.get_state()
-                if state.duration > 0:
-                    pos = random.uniform(0, state.duration * 0.8)
-                    logger.info("Random start seek", extra={"position": round(pos, 1), "duration": round(state.duration, 1)})
-                    self._player.seek(pos)
-            except Exception:
-                logger.debug("Could not seek to random position (video may still be loading)")
+            start_percent = random.uniform(0, 80.0)
+            logger.info("Random start", extra={"start_percent": round(start_percent, 1)})
+        self._player.load_video(video["url"], start_percent=start_percent)

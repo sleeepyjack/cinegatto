@@ -114,3 +114,30 @@ class TestLogsEndpoint:
         resp = c.get("/api/logs?limit=3")
         data = resp.get_json()
         assert len(data["entries"]) == 3
+
+
+class TestSettingsEndpoint:
+    def test_get_settings(self, client):
+        c, controller, _ = client
+        controller.get_settings.return_value = {"shuffle": True, "random_start": True}
+        resp = c.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["shuffle"] is True
+        assert data["random_start"] is True
+
+    def test_update_shuffle(self, client):
+        c, controller, _ = client
+        controller.get_settings.return_value = {"shuffle": False, "random_start": True}
+        resp = c.post("/api/settings",
+                       json={"shuffle": False})
+        assert resp.status_code == 200
+        controller.set_shuffle.assert_called_once_with(False)
+
+    def test_update_random_start(self, client):
+        c, controller, _ = client
+        controller.get_settings.return_value = {"shuffle": True, "random_start": False}
+        resp = c.post("/api/settings",
+                       json={"random_start": False})
+        assert resp.status_code == 200
+        controller.set_random_start.assert_called_once_with(False)

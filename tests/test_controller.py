@@ -60,7 +60,8 @@ class TestPlaybackController:
             ctrl.next_video()
             self._wait_for_queue(ctrl)
             selector.pick.assert_called_once()
-            player.load_video.assert_called_once_with("https://youtube.com/watch?v=abc")
+            player.load_video.assert_called_once()
+            assert player.load_video.call_args[0][0] == "https://youtube.com/watch?v=abc"
         finally:
             ctrl.stop()
 
@@ -74,7 +75,8 @@ class TestPlaybackController:
             ctrl.previous_video()
             self._wait_for_queue(ctrl)
             selector.previous.assert_called_once()
-            player.load_video.assert_called_once_with("https://youtube.com/watch?v=xyz")
+            player.load_video.assert_called_once()
+            assert player.load_video.call_args[0][0] == "https://youtube.com/watch?v=xyz"
         finally:
             ctrl.stop()
 
@@ -140,10 +142,10 @@ class TestPlaybackController:
         # Should not hang — stop drains the queue and exits
         assert not ctrl._worker_thread.is_alive()
 
-    def test_next_with_random_start_seeks(self):
-        """When random_start is enabled, next should seek after loading."""
+    def test_next_with_random_start_passes_start_percent(self):
+        """When random_start is enabled, load_video gets a start_percent."""
         player = MagicMock()
-        player.get_state.return_value = PlayerState(duration=1000.0)
+        player.get_state.return_value = PlayerState()
         selector = MagicMock()
         selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
         ctrl = self._make_controller(player=player, selector=selector, random_start=True)
@@ -151,16 +153,16 @@ class TestPlaybackController:
             ctrl.next_video()
             self._wait_for_queue(ctrl)
             player.load_video.assert_called_once()
-            player.seek.assert_called_once()
-            seek_pos = player.seek.call_args[0][0]
-            assert 0 <= seek_pos <= 800.0  # 80% of duration
+            _, kwargs = player.load_video.call_args
+            assert "start_percent" in kwargs
+            assert 0 <= kwargs["start_percent"] <= 80.0
         finally:
             ctrl.stop()
 
-    def test_next_without_random_start_does_not_seek(self):
-        """When random_start is disabled, next should not seek."""
+    def test_next_without_random_start_no_start_percent(self):
+        """When random_start is disabled, load_video gets no start_percent."""
         player = MagicMock()
-        player.get_state.return_value = PlayerState(duration=1000.0)
+        player.get_state.return_value = PlayerState()
         selector = MagicMock()
         selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
         ctrl = self._make_controller(player=player, selector=selector, random_start=False)
@@ -168,6 +170,32 @@ class TestPlaybackController:
             ctrl.next_video()
             self._wait_for_queue(ctrl)
             player.load_video.assert_called_once()
-            player.seek.assert_not_called()
+            _, kwargs = player.load_video.call_args
+            assert kwargs.get("start_percent") is None
+        finally:
+            ctrl.stop()
+
+    def test_set_shuffle(self):
+        """set_shuffle toggles the selector's shuffle mode."""
+        selector = MagicMock()
+        selector._shuffle = True
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        ctrl = self._make_controller(player=player, selector=selector)
+        try:
+            ctrl.set_shuffle(False)
+            assert selector._shuffle is False
+            assert ctrl.get_settings()["shuffle"] is False
+        finally:
+            ctrl.stop()
+
+    def test_set_random_start(self):
+        """set_random_start toggles random start."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        ctrl = self._make_controller(player=player, random_start=True)
+        try:
+            ctrl.set_random_start(False)
+            assert ctrl.get_settings()["random_start"] is False
         finally:
             ctrl.stop()

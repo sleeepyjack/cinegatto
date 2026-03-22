@@ -155,6 +155,25 @@ class TestMpvPlayer:
 
     @patch("cinegatto.player.mpv_player.subprocess.Popen")
     @patch("cinegatto.player.mpv_player.MpvIpc")
+    def test_load_video_with_start_percent(self, MockIpc, MockPopen):
+        """load_video with start_percent passes start= option to mpv."""
+        mock_ipc = MockIpc.return_value
+        mock_ipc.command.return_value = None
+        mock_proc = MockPopen.return_value
+        mock_proc.poll.return_value = None
+
+        player = MpvPlayer(mpv_args=[], socket_path="/tmp/test-mpv.sock")
+        player._ipc = mock_ipc
+        player._process = mock_proc
+        player._running = True
+
+        player.load_video("https://youtube.com/watch?v=test", start_percent=42.5)
+        mock_ipc.command.assert_called_with(
+            "loadfile", "https://youtube.com/watch?v=test", "replace", "start=42.5%"
+        )
+
+    @patch("cinegatto.player.mpv_player.subprocess.Popen")
+    @patch("cinegatto.player.mpv_player.MpvIpc")
     def test_play_unpauses(self, MockIpc, MockPopen):
         """play() sets pause property to false."""
         mock_ipc = MockIpc.return_value

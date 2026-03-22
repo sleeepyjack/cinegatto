@@ -39,7 +39,7 @@
   .controls {
     display: flex;
     gap: 16px;
-    margin-bottom: 32px;
+    margin-bottom: 24px;
     flex-wrap: wrap;
     justify-content: center;
   }
@@ -67,6 +67,41 @@
   }
   button.primary:active {
     background: #6a42a0;
+  }
+  .settings {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #16213e;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    transition: background 0.15s;
+  }
+  .toggle.active {
+    background: #533483;
+  }
+  .toggle .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.15s;
+  }
+  .toggle.active .dot {
+    background: #a0ffb0;
+  }
+  .toggle .label {
+    font-size: 0.9rem;
   }
   .logs {
     width: 100%;
@@ -113,6 +148,17 @@
   <button onclick="api('next')">&#9654;&#9654;</button>
 </div>
 
+<div class="settings">
+  <div class="toggle" id="shuffle-toggle" onclick="toggleSetting('shuffle')">
+    <div class="dot"></div>
+    <div class="label">Shuffle</div>
+  </div>
+  <div class="toggle" id="random-start-toggle" onclick="toggleSetting('random_start')">
+    <div class="dot"></div>
+    <div class="label">Random start</div>
+  </div>
+</div>
+
 <div class="logs">
   <h2 onclick="toggleLogs()">Logs &#9662;</h2>
   <div class="log-entries" id="log-entries"></div>
@@ -120,6 +166,7 @@
 
 <script>
 let playing = false;
+let settings = { shuffle: true, random_start: true };
 
 function api(action) {
   fetch('/api/' + action, { method: 'POST' }).catch(console.error);
@@ -127,6 +174,27 @@ function api(action) {
 
 function togglePlay() {
   api(playing ? 'pause' : 'play');
+}
+
+function toggleSetting(key) {
+  settings[key] = !settings[key];
+  const body = {};
+  body[key] = settings[key];
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(r => r.json()).then(data => {
+    settings = data;
+    renderSettings();
+  }).catch(console.error);
+}
+
+function renderSettings() {
+  const shuffleEl = document.getElementById('shuffle-toggle');
+  const randomEl = document.getElementById('random-start-toggle');
+  shuffleEl.classList.toggle('active', settings.shuffle);
+  randomEl.classList.toggle('active', settings.random_start);
 }
 
 function formatTime(s) {
@@ -151,6 +219,13 @@ function updateStatus() {
   });
 }
 
+function updateSettings() {
+  fetch('/api/settings').then(r => r.json()).then(data => {
+    settings = data;
+    renderSettings();
+  }).catch(() => {});
+}
+
 let logsOpen = false;
 function toggleLogs() {
   logsOpen = !logsOpen;
@@ -172,6 +247,7 @@ function updateLogs() {
 setInterval(updateStatus, 2000);
 setInterval(updateLogs, 5000);
 updateStatus();
+updateSettings();
 </script>
 
 </body>
