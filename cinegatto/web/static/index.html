@@ -227,11 +227,19 @@ function updateSettings() {
 }
 
 let logsOpen = false;
+let logsUserScrolled = false;
+
 function toggleLogs() {
   logsOpen = !logsOpen;
   document.getElementById('log-entries').classList.toggle('open', logsOpen);
-  if (logsOpen) updateLogs();
+  if (logsOpen) { logsUserScrolled = false; updateLogs(); }
 }
+
+document.getElementById('log-entries').addEventListener('scroll', function() {
+  const el = this;
+  // If user is near the bottom (within 30px), consider it "following"
+  logsUserScrolled = (el.scrollTop + el.clientHeight) < (el.scrollHeight - 30);
+});
 
 function updateLogs() {
   if (!logsOpen) return;
@@ -240,7 +248,10 @@ function updateLogs() {
     el.innerHTML = data.entries.map(e =>
       '<div class="log-entry"><span class="level-' + e.level + '">' +
       e.level + '</span> ' + (e.message || '') + '</div>'
-    ).reverse().join('');
+    ).join('');
+    if (!logsUserScrolled) {
+      el.scrollTop = el.scrollHeight;
+    }
   }).catch(() => {});
 }
 
