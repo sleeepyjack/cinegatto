@@ -16,7 +16,7 @@ from cinegatto.controller import PlaybackController
 from cinegatto.display.noop import NoopDisplay
 from cinegatto.log import RingBufferHandler, setup_logging
 from cinegatto.player.mpv_player import MpvPlayer
-from cinegatto.player.qr_overlay import apply_qr_overlay
+from cinegatto.player.qr_overlay import apply_overlays
 from cinegatto.playlist.fetcher import fetch_playlist
 from cinegatto.playlist.selector import Selector
 
@@ -118,9 +118,9 @@ def run(config_path: str = None) -> None:
     # QR code overlay pointing to web UI
     try:
         web_url = f"http://{_get_lan_ip()}:{config['api_port']}"
-        apply_qr_overlay(player._ipc, web_url)
+        apply_overlays(player._ipc, web_url)
     except Exception:
-        logger.warning("Could not apply QR overlay")
+        logger.warning("Could not apply overlays")
 
     selector = Selector(entries, shuffle=config["shuffle"])
     controller = PlaybackController(
