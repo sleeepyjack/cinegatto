@@ -1,0 +1,22 @@
+[Unit]
+Description=Cinegatto - Cinema for Cats
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/cinegatto
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/cinegatto/venv/bin/python -m cinegatto
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
