@@ -18,6 +18,11 @@ class PlaybackController:
     """Coordinates player, selector, and display via a serialized command queue.
 
     All mutations go through the queue. Status reads are non-blocking.
+
+    Cache rule: NEVER download and stream at the same time.
+    - Playing from cache → downloads are allowed in background
+    - Streaming from YouTube → downloads are paused (killed if in progress)
+    - When streaming finishes and next video plays from cache → downloads resume
     """
 
     def __init__(self, player, selector, display, random_start: bool = True,
@@ -31,6 +36,7 @@ class PlaybackController:
         self._queue: queue.Queue = queue.Queue()
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
+        self._is_streaming = False  # True when playing from YouTube (not cache)
 
     def start(self) -> None:
         """Start the command worker thread."""
@@ -145,7 +151,12 @@ class PlaybackController:
         self._load_video(video)
 
     def _load_video(self, video: dict) -> None:
-        """Load a video from cache or YouTube, with optional random seek."""
+        """Load a video from cache or YouTube.
+
+        Rule: never download and stream at the same time.
+        - Cache hit → play local file, allow background downloads
+        - Cache miss → kill any download, stream from YouTube, no downloads until next cache hit
+        """
         start_percent = None
         if self._random_start:
             start_percent = random.uniform(0, 80.0)
@@ -157,30 +168,37 @@ class PlaybackController:
             cached_path = self._cache_manager.is_cached(video["id"])
 
         if cached_path:
-            logger.info("Playing from cache", extra={"video_id": video["id"], "path": cached_path})
+            # --- CACHE HIT: play from local file ---
+            self._is_streaming = False
+            logger.info("Cache HIT — playing from local file",
+                        extra={"video_id": video["id"], "path": cached_path})
             self._player.load_video(cached_path, start_percent=start_percent)
             self._cache_manager.touch(video["id"])
-            # Resume downloads — cached playback doesn't compete with yt-dlp
+
+            # Safe to download in background — no streaming conflict
             if self._downloader:
                 self._downloader.resume()
+                # Enqueue uncached videos for background download
+                for entry in self._selector.peek_next(n=1):
+                    self._downloader.enqueue(entry["id"], entry["url"])
+                # Also enqueue the currently playing video's "other" playlist entries
+                self._downloader.enqueue(video["id"], video["url"])
         else:
-            # Pause downloads while streaming to avoid bandwidth/rate-limit conflicts
+            # --- CACHE MISS: stream from YouTube ---
+            self._is_streaming = True
+
+            # Kill any in-progress download — no concurrent streaming + downloading
             if self._downloader:
                 self._downloader.pause()
-            logger.info("Streaming from YouTube", extra={"video_id": video["id"]})
+                logger.info("Downloads paused — streaming from YouTube",
+                            extra={"video_id": video["id"]})
+
+            logger.info("Cache MISS — streaming from YouTube",
+                        extra={"video_id": video["id"]})
             self._player.load_video(video["url"], start_percent=start_percent)
-            # Enqueue for background download (will start after streaming settles)
+
+            # Enqueue this video for download later (will run when we next play from cache)
             if self._downloader:
                 self._downloader.enqueue(video["id"], video["url"])
-                # Resume downloads after a delay to let mpv's ytdl_hook finish
-                threading.Timer(15.0, self._resume_downloads).start()
-
-        # Pre-fetch next video (queued, will run when downloader is unpaused)
-        if self._downloader:
-            for entry in self._selector.peek_next(n=1):
-                self._downloader.enqueue(entry["id"], entry["url"])
-
-    def _resume_downloads(self) -> None:
-        """Resume background downloads (called after streaming video has loaded)."""
-        if self._downloader and self._running:
-            self._downloader.resume()
+                for entry in self._selector.peek_next(n=1):
+                    self._downloader.enqueue(entry["id"], entry["url"])

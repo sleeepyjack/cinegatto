@@ -112,12 +112,15 @@ class TestCacheIntegration:
         finally:
             controller.stop()
 
-    def test_cache_miss_streams_and_enqueues(self, tmp_path):
-        """When video is not cached, player gets YouTube URL and download is enqueued."""
+    def test_cache_miss_streams_and_pauses_downloads(self, tmp_path):
+        """Cache miss: streams from YouTube, pauses downloads, enqueues for later."""
         player = MagicMock()
         player.get_state.return_value = PlayerState()
-        entries = [{"id": "vid1", "title": "Birds", "url": "https://youtube.com/watch?v=vid1"}]
-        selector = Selector(entries)
+        entries = [
+            {"id": "vid1", "title": "Birds", "url": "https://youtube.com/watch?v=vid1"},
+            {"id": "vid2", "title": "Cats", "url": "https://youtube.com/watch?v=vid2"},
+        ]
+        selector = Selector(entries, shuffle=False)
         display = NoopDisplay()
         cache = CacheManager(str(tmp_path / "cache"), 1024 * 1024 * 100)
         downloader = MagicMock()
@@ -130,10 +133,13 @@ class TestCacheIntegration:
         try:
             controller.next_video()
             controller._queue.join()
+            # Should stream from YouTube
             player.load_video.assert_called_once()
             loaded_url = player.load_video.call_args[0][0]
             assert "youtube.com" in loaded_url
-            # Download should be enqueued (for the played video + prefetch)
+            # Downloads should be paused (never download while streaming)
+            downloader.pause.assert_called()
+            # Videos enqueued for later download (will run when next cache hit)
             assert downloader.enqueue.called
         finally:
             controller.stop()
