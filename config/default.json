@@ -1,0 +1,9 @@
+{
+  "playlist_url": "",
+  "api_port": 8080,
+  "log_level": "debug",
+  "audio": false,
+  "mpv_extra_args": [],
+  "watchdog_timeout_sec": 10,
+  "log_ring_size": 500
+}
