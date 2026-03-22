@@ -34,9 +34,26 @@ class MpvPlayer:
         self._cleanup_socket()
         self._spawn_mpv()
         self._connect_ipc()
+        self._register_event_handlers()
         self._running = True
         self._start_watchdog()
         logger.info("Player started", extra={"socket": self._socket_path})
+
+    def _register_event_handlers(self) -> None:
+        """Register IPC event callbacks for end-of-file handling."""
+        if self._on_video_end:
+            def handle_end_file(event):
+                reason = event.get("reason", "")
+                error = event.get("file_error", "")
+                if reason == "eof":
+                    logger.info("Video ended (EOF)")
+                    self._on_video_end()
+                elif reason == "error":
+                    logger.warning("Video failed to load", extra={"error": error})
+                    self._on_video_end()  # auto-advance on error too
+                # reason "stop" means we loaded a new file (user action), ignore it
+
+            self._ipc.on_event("end-file", handle_end_file)
 
     def _spawn_mpv(self) -> None:
         """Start the mpv child process in idle mode."""

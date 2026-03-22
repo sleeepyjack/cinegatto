@@ -98,13 +98,20 @@ def run(config_path: str = None) -> None:
         # Keep retrying in background
         entries = _standby_until_playlist(playlist_url, display)
 
-    # Build components
+    # Build components — use a mutable ref so player can call controller
+    controller_ref = [None]
+
+    def on_video_end():
+        if controller_ref[0]:
+            controller_ref[0].on_video_end()
+
     mpv_args = ["--no-audio"] if not config["audio"] else []
     mpv_args.extend(config.get("mpv_extra_args", []))
 
     player = MpvPlayer(
         mpv_args=mpv_args,
         watchdog_timeout=config["watchdog_timeout_sec"],
+        on_video_end=on_video_end,
     )
     player.start()
 
@@ -120,6 +127,7 @@ def run(config_path: str = None) -> None:
         player=player, selector=selector, display=display,
         random_start=config["random_start"],
     )
+    controller_ref[0] = controller
     controller.start()
 
     # Set up Flask
