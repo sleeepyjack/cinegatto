@@ -10,7 +10,7 @@ logger = logging.getLogger("cinegatto.playlist.fetcher")
 _lock = threading.Lock()
 
 
-def fetch_playlist(playlist_url: str) -> list[dict]:
+def fetch_playlist(playlist_url: str, cookies_from_browser: str = "") -> list[dict]:
     """Fetch playlist metadata from YouTube using yt-dlp.
 
     Returns a list of video entries with id, title, and url.
@@ -24,6 +24,8 @@ def fetch_playlist(playlist_url: str) -> list[dict]:
         "no_warnings": True,
         "ignoreerrors": True,
     }
+    if cookies_from_browser:
+        ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
 
     with _lock:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

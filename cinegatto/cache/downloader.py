@@ -23,9 +23,11 @@ class Downloader:
     interrupted cleanly via process termination on shutdown.
     """
 
-    def __init__(self, cache_manager: CacheManager, format_str: str):
+    def __init__(self, cache_manager: CacheManager, format_str: str,
+                 cookies_from_browser: str = ""):
         self._cache = cache_manager
         self._format = format_str
+        self._cookies_from_browser = cookies_from_browser
         self._queue: queue.Queue = queue.Queue()
         self._queued_ids: set[str] = set()
         self._queued_lock = threading.Lock()
@@ -143,8 +145,10 @@ class Downloader:
             "--merge-output-format", "mp4",
             "--no-warnings",
             "--quiet",
-            url,
         ]
+        if self._cookies_from_browser:
+            cmd.extend(["--cookies-from-browser", self._cookies_from_browser])
+        cmd.append(url)
 
         try:
             with self._proc_lock:

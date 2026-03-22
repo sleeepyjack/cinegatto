@@ -157,7 +157,13 @@
     <div class="dot"></div>
     <div class="label">Random start</div>
   </div>
+  <div class="toggle" id="sync-btn" onclick="syncCache()">
+    <div class="dot" id="sync-dot"></div>
+    <div class="label">Sync cache</div>
+  </div>
 </div>
+
+<div class="status" id="cache-status" style="font-size: 0.8rem; color: #666; margin-bottom: 16px;"></div>
 
 <div class="logs">
   <h2 onclick="toggleLogs()">Logs &#9662;</h2>
@@ -226,6 +232,27 @@ function updateSettings() {
   }).catch(() => {});
 }
 
+function syncCache() {
+  const dot = document.getElementById('sync-dot');
+  dot.style.background = '#f0ad4e';
+  fetch('/api/cache/sync', { method: 'POST' }).then(r => r.json()).then(data => {
+    dot.style.background = data.enqueued > 0 ? '#a0ffb0' : '#5bc0de';
+    setTimeout(() => { dot.style.background = '#555'; }, 3000);
+  }).catch(() => { dot.style.background = '#d9534f'; });
+}
+
+function updateCacheStatus() {
+  fetch('/api/cache').then(r => r.json()).then(data => {
+    if (!data.enabled) { return; }
+    const el = document.getElementById('cache-status');
+    const hitRate = (data.hits + data.misses) > 0
+      ? Math.round(100 * data.hits / (data.hits + data.misses)) : 0;
+    el.textContent = 'Cache: ' + data.count + ' videos, ' +
+      data.total_size_mb + ' MB / ' + data.max_size_mb + ' MB' +
+      ' (' + hitRate + '% hit rate)';
+  }).catch(() => {});
+}
+
 let logsOpen = false;
 let logsUserScrolled = false;
 
@@ -257,8 +284,10 @@ function updateLogs() {
 
 setInterval(updateStatus, 2000);
 setInterval(updateLogs, 5000);
+setInterval(updateCacheStatus, 10000);
 updateStatus();
 updateSettings();
+updateCacheStatus();
 </script>
 
 </body>

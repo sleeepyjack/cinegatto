@@ -80,6 +80,25 @@ def cache():
     return jsonify(stats)
 
 
+@api.route("/cache/sync", methods=["POST"])
+def cache_sync():
+    """Enqueue all playlist videos for background download."""
+    if _controller is None:
+        return jsonify({"status": "error", "message": "no controller"})
+    downloader = _controller._downloader
+    selector = _controller._selector
+    if not downloader or not selector:
+        return jsonify({"status": "error", "message": "caching not enabled"})
+    entries = selector.get_all_entries()
+    enqueued = 0
+    for entry in entries:
+        if not _cache_manager or not _cache_manager.is_cached(entry["id"]):
+            downloader.enqueue(entry["id"], entry["url"])
+            enqueued += 1
+    logger.info("Cache sync requested", extra={"enqueued": enqueued, "total": len(entries)})
+    return jsonify({"status": "ok", "enqueued": enqueued, "total": len(entries)})
+
+
 @api.route("/logs", methods=["GET"])
 def logs():
     if _ring_handler is None:
