@@ -129,7 +129,10 @@ def run(config_path: str = None) -> None:
     if config["cache_enabled"]:
         from cinegatto.cache.manager import CacheManager
         from cinegatto.cache.downloader import Downloader
-        cache_path = os.path.expanduser(config["cache_path"])
+        cache_path = config["cache_path"]
+        if not cache_path:
+            cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
+        cache_path = os.path.expanduser(cache_path)
         max_bytes = int(config["cache_max_size_gb"] * 1024**3)
         cache_manager = CacheManager(cache_path, max_bytes)
         downloader = Downloader(cache_manager, config["cache_format"])

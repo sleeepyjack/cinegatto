@@ -17,7 +17,7 @@ DEFAULTS = {
     "log_ring_size": 500,
     "log_file": ".cinegatto.log",
     "cache_enabled": True,
-    "cache_path": "~/.cache/cinegatto",
+    "cache_path": "",
     "cache_max_size_gb": 16,
     "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
 }
