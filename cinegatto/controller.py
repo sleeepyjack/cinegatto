@@ -160,14 +160,27 @@ class PlaybackController:
             logger.info("Playing from cache", extra={"video_id": video["id"], "path": cached_path})
             self._player.load_video(cached_path, start_percent=start_percent)
             self._cache_manager.touch(video["id"])
+            # Resume downloads — cached playback doesn't compete with yt-dlp
+            if self._downloader:
+                self._downloader.resume()
         else:
+            # Pause downloads while streaming to avoid bandwidth/rate-limit conflicts
+            if self._downloader:
+                self._downloader.pause()
             logger.info("Streaming from YouTube", extra={"video_id": video["id"]})
             self._player.load_video(video["url"], start_percent=start_percent)
-            # Enqueue background download
+            # Enqueue for background download (will start after streaming settles)
             if self._downloader:
                 self._downloader.enqueue(video["id"], video["url"])
+                # Resume downloads after a delay to let mpv's ytdl_hook finish
+                threading.Timer(15.0, self._resume_downloads).start()
 
-        # Pre-fetch next video
+        # Pre-fetch next video (queued, will run when downloader is unpaused)
         if self._downloader:
             for entry in self._selector.peek_next(n=1):
                 self._downloader.enqueue(entry["id"], entry["url"])
+
+    def _resume_downloads(self) -> None:
+        """Resume background downloads (called after streaming video has loaded)."""
+        if self._downloader and self._running:
+            self._downloader.resume()

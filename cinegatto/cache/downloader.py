@@ -33,6 +33,8 @@ class Downloader:
         self._running = False
         self._current_proc: Optional[subprocess.Popen] = None
         self._proc_lock = threading.Lock()
+        self._paused = threading.Event()
+        self._paused.set()  # starts unpaused
 
     def start(self) -> None:
         self._running = True
@@ -53,11 +55,29 @@ class Downloader:
                     self._current_proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     self._current_proc.kill()
-        # Drain the queue
+        # Unblock worker if paused, then drain
+        self._paused.set()
         self._queue.put(_SENTINEL)
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=5)
         logger.info("Downloader stopped")
+
+    def pause(self) -> None:
+        """Pause downloads — kills any in-progress download and blocks the worker."""
+        logger.debug("Downloader pausing")
+        self._paused.clear()
+        with self._proc_lock:
+            if self._current_proc and self._current_proc.poll() is None:
+                self._current_proc.terminate()
+                try:
+                    self._current_proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._current_proc.kill()
+
+    def resume(self) -> None:
+        """Resume downloads."""
+        logger.debug("Downloader resuming")
+        self._paused.set()
 
     def enqueue(self, video_id: str, url: str) -> None:
         """Add a video to the download queue. Skips if already cached or queued."""
@@ -76,6 +96,11 @@ class Downloader:
             if item is _SENTINEL:
                 self._queue.task_done()
                 break
+            if not self._running:
+                self._queue.task_done()
+                break
+            # Wait if paused (e.g., while streaming a video)
+            self._paused.wait()
             if not self._running:
                 self._queue.task_done()
                 break
