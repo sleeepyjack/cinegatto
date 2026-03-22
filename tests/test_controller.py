@@ -9,14 +9,14 @@ from cinegatto.player.types import PlayerState
 
 
 class TestPlaybackController:
-    def _make_controller(self, player=None, selector=None, display=None):
+    def _make_controller(self, player=None, selector=None, display=None, random_start=False):
         player = player or MagicMock()
         selector = selector or MagicMock()
         display = display or MagicMock()
         # Default get_state to return idle
         if not hasattr(player.get_state, 'return_value') or player.get_state.return_value is MagicMock:
             player.get_state.return_value = PlayerState()
-        ctrl = PlaybackController(player=player, selector=selector, display=display)
+        ctrl = PlaybackController(player=player, selector=selector, display=display, random_start=random_start)
         ctrl.start()
         return ctrl
 
@@ -139,3 +139,35 @@ class TestPlaybackController:
         ctrl.stop()
         # Should not hang — stop drains the queue and exits
         assert not ctrl._worker_thread.is_alive()
+
+    def test_next_with_random_start_seeks(self):
+        """When random_start is enabled, next should seek after loading."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState(duration=1000.0)
+        selector = MagicMock()
+        selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
+        ctrl = self._make_controller(player=player, selector=selector, random_start=True)
+        try:
+            ctrl.next_video()
+            self._wait_for_queue(ctrl)
+            player.load_video.assert_called_once()
+            player.seek.assert_called_once()
+            seek_pos = player.seek.call_args[0][0]
+            assert 0 <= seek_pos <= 800.0  # 80% of duration
+        finally:
+            ctrl.stop()
+
+    def test_next_without_random_start_does_not_seek(self):
+        """When random_start is disabled, next should not seek."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState(duration=1000.0)
+        selector = MagicMock()
+        selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
+        ctrl = self._make_controller(player=player, selector=selector, random_start=False)
+        try:
+            ctrl.next_video()
+            self._wait_for_queue(ctrl)
+            player.load_video.assert_called_once()
+            player.seek.assert_not_called()
+        finally:
+            ctrl.stop()

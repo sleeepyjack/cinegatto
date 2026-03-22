@@ -96,8 +96,11 @@ def run(config_path: str = None) -> None:
     )
     player.start()
 
-    selector = Selector(entries)
-    controller = PlaybackController(player=player, selector=selector, display=display)
+    selector = Selector(entries, shuffle=config["shuffle"])
+    controller = PlaybackController(
+        player=player, selector=selector, display=display,
+        random_start=config["random_start"],
+    )
     controller.start()
 
     # Set up Flask

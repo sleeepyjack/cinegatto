@@ -58,6 +58,25 @@ class TestSelector:
         selector.update_entries(new_entries)
         assert len(selector._entries) == 5
 
+    def test_sequential_mode_plays_in_order(self):
+        entries = self._sample_entries(3)
+        selector = Selector(entries, shuffle=False)
+        picks = [selector.pick() for _ in range(3)]
+        assert picks == entries
+
+    def test_sequential_mode_wraps_around(self):
+        entries = self._sample_entries(3)
+        selector = Selector(entries, shuffle=False)
+        picks = [selector.pick() for _ in range(5)]
+        assert picks[3] == entries[0]  # wrapped
+        assert picks[4] == entries[1]
+
+    def test_shuffle_mode_picks_from_entries(self):
+        entries = self._sample_entries(5)
+        selector = Selector(entries, shuffle=True)
+        for _ in range(10):
+            assert selector.pick() in entries
+
 
 class TestFetchPlaylist:
     @patch("cinegatto.playlist.fetcher.yt_dlp.YoutubeDL")

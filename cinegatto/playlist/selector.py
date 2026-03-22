@@ -1,4 +1,4 @@
-"""Selector — random video selection with history for previous support."""
+"""Selector — video selection with shuffle/sequential modes and history."""
 
 import collections
 import logging
@@ -10,24 +10,37 @@ logger = logging.getLogger("cinegatto.playlist.selector")
 
 
 class Selector:
-    """Picks random videos from a playlist and maintains play history."""
+    """Picks videos from a playlist (shuffle or sequential) with play history.
 
-    def __init__(self, entries: list[dict], history_size: int = 50):
+    In shuffle mode, videos are picked randomly.
+    In sequential mode, videos play in order and wrap around at the end.
+    """
+
+    def __init__(self, entries: list[dict], shuffle: bool = True, history_size: int = 50):
         self._entries = list(entries)
+        self._shuffle = shuffle
         self._history = collections.deque(maxlen=history_size)
         self._current: Optional[dict] = None
+        self._index = 0
         self._lock = threading.Lock()
 
     def pick(self) -> dict:
-        """Pick a random video from the playlist."""
+        """Pick the next video from the playlist."""
         with self._lock:
             if not self._entries:
                 raise ValueError("Cannot pick from empty playlist")
-            video = random.choice(self._entries)
+            if self._shuffle:
+                video = random.choice(self._entries)
+            else:
+                video = self._entries[self._index]
+                self._index = (self._index + 1) % len(self._entries)
             if self._current is not None:
                 self._history.append(self._current)
             self._current = video
-            logger.debug("Picked video", extra={"video_id": video["id"], "title": video["title"]})
+            logger.debug("Picked video", extra={
+                "video_id": video["id"], "title": video["title"],
+                "mode": "shuffle" if self._shuffle else f"sequential[{self._index}]",
+            })
             return video
 
     def previous(self) -> Optional[dict]:
@@ -36,9 +49,10 @@ class Selector:
             if not self._history:
                 return None
             prev = self._history.pop()
-            if self._current is not None:
-                # Don't push current back — we're going backwards
-                pass
+            # In sequential mode, step the index back too
+            if not self._shuffle and self._current in self._entries:
+                idx = self._entries.index(self._current)
+                self._index = idx  # so next pick() replays current
             self._current = prev
             logger.debug("Going to previous", extra={"video_id": prev["id"], "title": prev["title"]})
             return prev
@@ -47,4 +61,7 @@ class Selector:
         """Update the playlist entries (e.g., after a refresh)."""
         with self._lock:
             self._entries = list(entries)
+            # Clamp index in case playlist shrank
+            if self._index >= len(self._entries):
+                self._index = 0
             logger.info("Playlist updated", extra={"count": len(entries)})
