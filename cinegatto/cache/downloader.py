@@ -3,10 +3,11 @@
 import logging
 import os
 import queue
+import subprocess
+import shutil
+import sys
 import threading
 from typing import Optional
-
-import yt_dlp
 
 from cinegatto.cache.manager import CacheManager
 
@@ -16,7 +17,11 @@ _SENTINEL = object()
 
 
 class Downloader:
-    """Downloads videos in the background via yt-dlp, one at a time."""
+    """Downloads videos in the background via yt-dlp subprocess, one at a time.
+
+    Uses yt-dlp as a subprocess (not as a library) so downloads can be
+    interrupted cleanly via process termination on shutdown.
+    """
 
     def __init__(self, cache_manager: CacheManager, format_str: str):
         self._cache = cache_manager
@@ -26,6 +31,8 @@ class Downloader:
         self._queued_lock = threading.Lock()
         self._worker: Optional[threading.Thread] = None
         self._running = False
+        self._current_proc: Optional[subprocess.Popen] = None
+        self._proc_lock = threading.Lock()
 
     def start(self) -> None:
         self._running = True
@@ -38,9 +45,18 @@ class Downloader:
     def stop(self) -> None:
         logger.info("Downloader stopping")
         self._running = False
+        # Kill any in-progress download
+        with self._proc_lock:
+            if self._current_proc and self._current_proc.poll() is None:
+                self._current_proc.terminate()
+                try:
+                    self._current_proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._current_proc.kill()
+        # Drain the queue
         self._queue.put(_SENTINEL)
         if self._worker and self._worker.is_alive():
-            self._worker.join(timeout=10)
+            self._worker.join(timeout=5)
         logger.info("Downloader stopped")
 
     def enqueue(self, video_id: str, url: str) -> None:
@@ -60,6 +76,9 @@ class Downloader:
             if item is _SENTINEL:
                 self._queue.task_done()
                 break
+            if not self._running:
+                self._queue.task_done()
+                break
             video_id, url = item
             try:
                 self._download(video_id, url)
@@ -71,8 +90,11 @@ class Downloader:
                 self._queue.task_done()
 
     def _download(self, video_id: str, url: str) -> None:
-        """Download a video via yt-dlp to the cache directory."""
-        # Double-check not already cached (may have been cached while queued)
+        """Download a video via yt-dlp subprocess to the cache directory."""
+        if not self._running:
+            return
+
+        # Double-check not already cached
         if self._cache.is_cached(video_id):
             logger.debug("Already cached, skipping download", extra={"video_id": video_id})
             return
@@ -83,43 +105,62 @@ class Downloader:
 
         logger.info("Downloading video", extra={"video_id": video_id, "url": url})
 
-        ydl_opts = {
-            "format": self._format,
-            "outtmpl": part_path,
-            "merge_output_format": "mp4",
-            "quiet": True,
-            "no_warnings": True,
-            "ignoreerrors": False,
-        }
+        # Find yt-dlp binary — prefer the one in our venv
+        yt_dlp_bin = shutil.which("yt-dlp")
+        venv_bin = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
+        if os.path.isfile(venv_bin):
+            yt_dlp_bin = venv_bin
+
+        cmd = [
+            yt_dlp_bin or "yt-dlp",
+            "-f", self._format,
+            "-o", part_path,
+            "--merge-output-format", "mp4",
+            "--no-warnings",
+            "--quiet",
+            url,
+        ]
 
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-        except Exception:
-            # Clean up partial file on error
-            for f in [part_path, part_path + ".part"]:
+            with self._proc_lock:
+                if not self._running:
+                    return
+                self._current_proc = subprocess.Popen(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                )
+            returncode = self._current_proc.wait()
+            with self._proc_lock:
+                self._current_proc = None
+
+            if returncode != 0:
+                stderr = ""
                 try:
-                    os.unlink(f)
-                except FileNotFoundError:
+                    stderr = self._current_proc.stderr.read().decode(errors="replace")[:500]
+                except Exception:
                     pass
+                logger.warning("yt-dlp exited with code %d", returncode, extra={"stderr": stderr})
+                self._cleanup_part_files(video_id, cache_path)
+                return
+
+        except Exception:
+            with self._proc_lock:
+                self._current_proc = None
+            self._cleanup_part_files(video_id, cache_path)
             raise
 
-        # yt-dlp may have created the file with .part extension or merged to .part
-        # Find the actual output file
-        actual_path = part_path
-        if not os.path.isfile(actual_path):
-            # yt-dlp sometimes adds .mp4 to the template
-            for candidate in [part_path + ".mp4", part_path]:
-                if os.path.isfile(candidate):
-                    actual_path = candidate
-                    break
-            else:
-                logger.warning("Downloaded file not found", extra={"video_id": video_id})
-                return
+        if not self._running:
+            self._cleanup_part_files(video_id, cache_path)
+            return
+
+        # Find the actual output file (yt-dlp may add extensions)
+        actual_path = self._find_output(part_path)
+        if not actual_path:
+            logger.warning("Downloaded file not found", extra={"video_id": video_id})
+            return
 
         file_size = os.path.getsize(actual_path)
 
-        # Size guard: check if this fits in cache (after eviction)
+        # Size guard
         stats = self._cache.get_stats()
         space_needed = file_size - (stats["max_size"] - stats["total_size"])
         if space_needed > 0:
@@ -136,3 +177,24 @@ class Downloader:
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
+
+    def _find_output(self, part_path: str) -> Optional[str]:
+        """Find the actual output file — yt-dlp may append extensions."""
+        for candidate in [part_path, part_path + ".mp4", part_path + ".mkv",
+                          part_path + ".webm"]:
+            if os.path.isfile(candidate):
+                return candidate
+        # Also check if yt-dlp already merged to the name without .part
+        base = part_path.replace(".part", ".mp4")
+        if os.path.isfile(base):
+            return base
+        return None
+
+    def _cleanup_part_files(self, video_id: str, cache_path: str) -> None:
+        """Remove any partial download files."""
+        for name in os.listdir(cache_path):
+            if name.startswith(video_id) and (".part" in name or name.endswith(".ytdl")):
+                try:
+                    os.unlink(os.path.join(cache_path, name))
+                except FileNotFoundError:
+                    pass

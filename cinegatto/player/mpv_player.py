@@ -42,15 +42,27 @@ class MpvPlayer:
     def _register_event_handlers(self) -> None:
         """Register IPC event callbacks for end-of-file handling."""
         if self._on_video_end:
+            self._consecutive_errors = 0
+
             def handle_end_file(event):
                 reason = event.get("reason", "")
                 error = event.get("file_error", "")
                 if reason == "eof":
                     logger.info("Video ended (EOF)")
+                    self._consecutive_errors = 0
                     self._on_video_end()
                 elif reason == "error":
-                    logger.warning("Video failed to load", extra={"error": error})
-                    self._on_video_end()  # auto-advance on error too
+                    self._consecutive_errors += 1
+                    logger.warning("Video failed to load (attempt %d)",
+                                   self._consecutive_errors, extra={"error": error})
+                    if self._consecutive_errors >= 5:
+                        logger.error("Too many consecutive errors, pausing auto-advance for 30s")
+                        time.sleep(30)
+                        self._consecutive_errors = 0
+                    else:
+                        time.sleep(2)  # brief backoff before retrying
+                    if self._running:
+                        self._on_video_end()
                 # reason "stop" means we loaded a new file (user action), ignore it
 
             self._ipc.on_event("end-file", handle_end_file)
