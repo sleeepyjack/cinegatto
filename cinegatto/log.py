@@ -1,7 +1,11 @@
 import collections
 import logging
+import os
+from pathlib import Path
 
 from pythonjsonlogger.json import JsonFormatter
+
+_DEFAULT_LOG_FILE = str(Path(__file__).parent.parent / ".cinegatto.log")
 
 
 class RingBufferHandler(logging.Handler):
@@ -31,8 +35,8 @@ class RingBufferHandler(logging.Handler):
         return entries[:limit]
 
 
-def setup_logging(level="debug", ring_size=500):
-    """Configure structured JSON logging with console output and ring buffer.
+def setup_logging(level="debug", ring_size=500, log_file=None):
+    """Configure structured JSON logging with console output, file, and ring buffer.
 
     Returns the configured root logger.
     """
@@ -52,6 +56,13 @@ def setup_logging(level="debug", ring_size=500):
     console.setLevel(log_level)
     console.setFormatter(formatter)
     logger.addHandler(console)
+
+    # File handler
+    log_path = os.path.expanduser(log_file) if log_file else _DEFAULT_LOG_FILE
+    file_handler = logging.FileHandler(log_path, mode="w")  # overwrite each run
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
     ring = RingBufferHandler(max_size=ring_size)
     ring.setLevel(log_level)

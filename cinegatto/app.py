@@ -68,6 +68,7 @@ def run(config_path: str = None) -> None:
     ring_handler = setup_logging(
         level=config["log_level"],
         ring_size=config["log_ring_size"],
+        log_file=config.get("log_file"),
     ).handlers[1]  # second handler is the ring buffer
     # Find the ring buffer handler more robustly
     root_logger = logging.getLogger("cinegatto")
