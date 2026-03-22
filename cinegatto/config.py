@@ -6,7 +6,7 @@ from pathlib import Path
 logger = logging.getLogger("cinegatto.config")
 
 DEFAULTS = {
-    "playlist_url": "",
+    "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd",
     "api_port": 8080,
     "log_level": "debug",
     "audio": False,
