@@ -15,6 +15,10 @@ DEFAULTS = {
     "mpv_extra_args": [],
     "watchdog_timeout_sec": 10,
     "log_ring_size": 500,
+    "cache_enabled": True,
+    "cache_path": "~/.cache/cinegatto",
+    "cache_max_size_gb": 16,
+    "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
 }
 
 VALIDATORS = {
@@ -27,6 +31,10 @@ VALIDATORS = {
     "mpv_extra_args": lambda v: isinstance(v, list),
     "watchdog_timeout_sec": lambda v: isinstance(v, (int, float)),
     "log_ring_size": lambda v: isinstance(v, int),
+    "cache_enabled": lambda v: isinstance(v, bool),
+    "cache_path": lambda v: isinstance(v, str),
+    "cache_max_size_gb": lambda v: isinstance(v, (int, float)),
+    "cache_format": lambda v: isinstance(v, str),
 }
 
 
