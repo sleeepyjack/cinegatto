@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>cinegatto</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+  .status {
+    text-align: center;
+    margin-bottom: 24px;
+    min-height: 60px;
+  }
+  .status .title {
+    font-size: 1.1rem;
+    color: #a0c4ff;
+    margin-bottom: 4px;
+    word-break: break-word;
+  }
+  .status .info {
+    font-size: 0.85rem;
+    color: #888;
+  }
+  .controls {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    font-size: 1.3rem;
+    padding: 16px 28px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    background: #16213e;
+    color: #e0e0e0;
+    transition: background 0.15s, transform 0.1s;
+    min-width: 70px;
+    touch-action: manipulation;
+  }
+  button:active {
+    transform: scale(0.95);
+    background: #0f3460;
+  }
+  button.primary {
+    background: #533483;
+    color: #fff;
+    font-size: 1.5rem;
+    padding: 20px 36px;
+  }
+  button.primary:active {
+    background: #6a42a0;
+  }
+  .logs {
+    width: 100%;
+    max-width: 600px;
+    margin-top: 16px;
+  }
+  .logs h2 {
+    font-size: 1rem;
+    margin-bottom: 8px;
+    color: #888;
+    cursor: pointer;
+  }
+  .log-entries {
+    background: #0d1117;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    display: none;
+  }
+  .log-entries.open { display: block; }
+  .log-entry { margin-bottom: 2px; }
+  .log-entry .level-WARNING { color: #f0ad4e; }
+  .log-entry .level-ERROR { color: #d9534f; }
+  .log-entry .level-INFO { color: #5bc0de; }
+  .log-entry .level-DEBUG { color: #666; }
+</style>
+</head>
+<body>
+
+<h1>cinegatto</h1>
+
+<div class="status">
+  <div class="title" id="video-title">--</div>
+  <div class="info" id="video-info">--</div>
+</div>
+
+<div class="controls">
+  <button onclick="api('previous')">&#9664;&#9664;</button>
+  <button class="primary" id="play-btn" onclick="togglePlay()">&#9654;</button>
+  <button onclick="api('next')">&#9654;&#9654;</button>
+</div>
+
+<div class="logs">
+  <h2 onclick="toggleLogs()">Logs &#9662;</h2>
+  <div class="log-entries" id="log-entries"></div>
+</div>
+
+<script>
+let playing = false;
+
+function api(action) {
+  fetch('/api/' + action, { method: 'POST' }).catch(console.error);
+}
+
+function togglePlay() {
+  api(playing ? 'pause' : 'play');
+}
+
+function formatTime(s) {
+  if (!s || s <= 0) return '--:--';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  return m + ':' + String(sec).padStart(2,'0');
+}
+
+function updateStatus() {
+  fetch('/api/status').then(r => r.json()).then(data => {
+    playing = data.playing;
+    document.getElementById('play-btn').innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
+    document.getElementById('video-title').textContent = data.video_title || '--';
+    document.getElementById('video-info').textContent =
+      (playing ? 'Playing' : 'Paused') + ' \u2022 ' +
+      formatTime(data.position) + ' / ' + formatTime(data.duration);
+  }).catch(() => {
+    document.getElementById('video-info').textContent = 'Disconnected';
+  });
+}
+
+let logsOpen = false;
+function toggleLogs() {
+  logsOpen = !logsOpen;
+  document.getElementById('log-entries').classList.toggle('open', logsOpen);
+  if (logsOpen) updateLogs();
+}
+
+function updateLogs() {
+  if (!logsOpen) return;
+  fetch('/api/logs?limit=50').then(r => r.json()).then(data => {
+    const el = document.getElementById('log-entries');
+    el.innerHTML = data.entries.map(e =>
+      '<div class="log-entry"><span class="level-' + e.level + '">' +
+      e.level + '</span> ' + (e.message || '') + '</div>'
+    ).reverse().join('');
+  }).catch(() => {});
+}
+
+setInterval(updateStatus, 2000);
+setInterval(updateLogs, 5000);
+updateStatus();
+</script>
+
+</body>
+</html>

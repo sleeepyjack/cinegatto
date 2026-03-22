@@ -1,0 +1,163 @@
+"""Application bootstrap — wires all components together."""
+
+import logging
+import os
+import platform
+import signal
+import sys
+import threading
+import time
+
+from flask import Flask
+
+from cinegatto.api.routes import api, init_api
+from cinegatto.config import load_config
+from cinegatto.controller import PlaybackController
+from cinegatto.display.noop import NoopDisplay
+from cinegatto.log import RingBufferHandler, setup_logging
+from cinegatto.player.mpv_player import MpvPlayer
+from cinegatto.playlist.fetcher import fetch_playlist
+from cinegatto.playlist.selector import Selector
+
+logger = logging.getLogger("cinegatto.app")
+
+
+def _is_pi() -> bool:
+    return platform.system() == "Linux" and platform.machine().startswith("aarch64")
+
+
+def _create_display():
+    if _is_pi():
+        from cinegatto.display.pi import PiDisplay
+        return PiDisplay()
+    return NoopDisplay()
+
+
+def _fetch_with_retry(playlist_url: str, max_attempts: int = 5, base_delay: float = 5.0) -> list[dict]:
+    """Fetch playlist with exponential backoff retry."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fetch_playlist(playlist_url)
+        except Exception as e:
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "Playlist fetch failed (attempt %d/%d), retrying in %.0fs",
+                attempt, max_attempts, delay,
+                extra={"error": str(e)},
+            )
+            if attempt == max_attempts:
+                raise
+            time.sleep(delay)
+
+
+def run(config_path: str = None) -> None:
+    """Main entry point — start cinegatto."""
+    config = load_config(user_config_path=config_path)
+    ring_handler = setup_logging(
+        level=config["log_level"],
+        ring_size=config["log_ring_size"],
+    ).handlers[1]  # second handler is the ring buffer
+    # Find the ring buffer handler more robustly
+    root_logger = logging.getLogger("cinegatto")
+    ring_handler = None
+    for h in root_logger.handlers:
+        if isinstance(h, RingBufferHandler):
+            ring_handler = h
+            break
+
+    logger.info("Starting cinegatto", extra={"config": config})
+
+    # Validate playlist URL
+    playlist_url = config["playlist_url"]
+    if not playlist_url:
+        logger.error("No playlist_url configured. Set it in your config file.")
+        sys.exit(1)
+
+    # Build display
+    display = _create_display()
+
+    # Fetch playlist (with retry)
+    logger.info("Fetching playlist...")
+    try:
+        entries = _fetch_with_retry(playlist_url)
+    except Exception:
+        logger.error("Could not fetch playlist after retries. Entering standby.")
+        display.power_off()
+        # Keep retrying in background
+        entries = _standby_until_playlist(playlist_url, display)
+
+    # Build components
+    mpv_args = ["--no-audio"] if not config["audio"] else []
+    mpv_args.extend(config.get("mpv_extra_args", []))
+
+    player = MpvPlayer(
+        mpv_args=mpv_args,
+        watchdog_timeout=config["watchdog_timeout_sec"],
+    )
+    player.start()
+
+    selector = Selector(entries)
+    controller = PlaybackController(player=player, selector=selector, display=display)
+    controller.start()
+
+    # Set up Flask
+    app = Flask(__name__,
+                static_folder=os.path.join(os.path.dirname(__file__), "web", "static"),
+                static_url_path="/static")
+    init_api(controller, ring_handler)
+    app.register_blueprint(api)
+
+    @app.route("/")
+    def index():
+        return app.send_static_file("index.html")
+
+    # Graceful shutdown
+    def shutdown_handler(signum, frame):
+        logger.info("Received signal %s, shutting down", signum)
+        controller.stop()
+        player.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+
+    # Start periodic playlist refresh
+    refresh_thread = threading.Thread(
+        target=_playlist_refresh_loop,
+        args=(playlist_url, selector),
+        daemon=True,
+        name="playlist-refresh",
+    )
+    refresh_thread.start()
+
+    # Auto-play first video
+    logger.info("Auto-playing first video")
+    controller.next_video()
+
+    # Start Flask (blocking)
+    logger.info("Starting API server on port %d", config["api_port"])
+    app.run(host="0.0.0.0", port=config["api_port"], threaded=True, use_reloader=False)
+
+
+def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
+    """Keep retrying playlist fetch until successful."""
+    while True:
+        time.sleep(60)
+        try:
+            entries = fetch_playlist(playlist_url)
+            logger.info("Playlist fetched after standby retry")
+            display.power_on()
+            return entries
+        except Exception as e:
+            logger.debug("Standby retry failed: %s", e)
+
+
+def _playlist_refresh_loop(playlist_url: str, selector: Selector, interval: float = 1800) -> None:
+    """Periodically re-fetch playlist metadata (every 30 min by default)."""
+    while True:
+        time.sleep(interval)
+        try:
+            entries = fetch_playlist(playlist_url)
+            selector.update_entries(entries)
+        except Exception as e:
+            logger.warning("Playlist refresh failed: %s", e)
