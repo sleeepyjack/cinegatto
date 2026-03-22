@@ -45,6 +45,7 @@ class MpvPlayer:
             "--idle=yes",
             f"--input-ipc-server={self._socket_path}",
             "--no-terminal",
+            "--force-window=yes",
         ] + self._mpv_args
 
         logger.debug("Spawning mpv", extra={"cmd": cmd})
