@@ -18,16 +18,18 @@ pkill -f "cinegatto-mpv.sock" 2>/dev/null || true
 rm -f /tmp/cinegatto-mpv.sock
 
 PORT=${PORT:-8080}
+LAN_IP=$(python3 -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "<your-ip>")
 
 echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║        🐱  cinegatto  🐱              ║"
-echo "  ║                                      ║"
-echo "  ║  Web UI:  http://localhost:${PORT}       ║"
-echo "  ║  Phone:   http://$(ipconfig getifaddr en0 2>/dev/null || echo '<your-ip>'):${PORT}  ║"
-echo "  ║                                      ║"
-echo "  ║  Press Ctrl+C to stop                ║"
-echo "  ╚══════════════════════════════════════╝"
+echo "  ╔══════════════════════════════════════════╗"
+echo "  ║           cinegatto - cinema for cats     ║"
+echo "  ╠══════════════════════════════════════════╣"
+echo "  ║                                          ║"
+echo "  ║  Web UI:  http://localhost:${PORT}           ║"
+echo "  ║  Phone:   http://${LAN_IP}:${PORT}  ║"
+echo "  ║                                          ║"
+echo "  ║  Press Ctrl+C to stop                    ║"
+echo "  ╚══════════════════════════════════════════╝"
 echo ""
 
 exec ./venv/bin/python -m cinegatto "$@"
