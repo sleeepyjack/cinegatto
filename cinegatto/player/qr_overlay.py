@@ -13,19 +13,12 @@ _MARGIN = 16
 _QR_SIZE = 200
 
 _CAT_ART = r"""
-    ██╗        ██╗
-   ██╔╝ ██████ ╚██╗
-  ██╔╝ ████████ ╚██╗
- ██║  ██╗    ██╗  ██║
- ██║  ╚═╝ ██ ╚═╝  ██║
- ██║ ═══╗ ╔╗ ╔═══ ██║
- ╚██╗ ══╩═╝╚═╩══ ██╔╝
-  ╚██╗ ████████ ██╔╝
-   ╚██╗ ══════ ██╔╝
-    ╚██████████╔╝
+  /\_/\
+ ( o.o )
+  > ^ <
 """.strip("\n")
 
-_TITLE = "c i n e g a t t o"
+_TITLE = "cinegatto"
 _GITHUB_URL = "github.com/sleeepyjack/cinegatto"
 
 
@@ -130,16 +123,56 @@ def _generate_qr_with_url(url, size=_QR_SIZE):
     return img
 
 
+def _generate_art_overlay():
+    """Generate the left-side overlay: cat art + title + github URL."""
+    font_art = _find_mono_font(22)
+    font_title = _find_mono_font(18)
+    font_url = _find_mono_font(12)
+
+    tmp = Image.new("RGBA", (1, 1))
+    d = ImageDraw.Draw(tmp)
+
+    # Measure each piece
+    art_bbox = d.multiline_textbbox((0, 0), _CAT_ART, font=font_art)
+    art_w, art_h = art_bbox[2] - art_bbox[0], art_bbox[3] - art_bbox[1]
+
+    title_bbox = d.textbbox((0, 0), _TITLE, font=font_title)
+    title_w, title_h = title_bbox[2] - title_bbox[0], title_bbox[3] - title_bbox[1]
+
+    url_bbox = d.textbbox((0, 0), _GITHUB_URL, font=font_url)
+    url_w, url_h = url_bbox[2] - url_bbox[0], url_bbox[3] - url_bbox[1]
+
+    # Layout
+    pad = _MARGIN
+    gap = 8
+    content_w = max(art_w, title_w, url_w)
+    content_h = art_h + gap + title_h + gap + url_h
+    total_w = content_w + pad * 2
+    total_h = content_h + pad * 2
+
+    img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, _BG_ALPHA))
+    draw = ImageDraw.Draw(img)
+
+    y = pad
+    # Center cat art
+    draw.multiline_text(((total_w - art_w) // 2, y), _CAT_ART,
+                        font=font_art, fill=(255, 255, 255, 230))
+    y += art_h + gap
+    # Center title
+    draw.text(((total_w - title_w) // 2, y), _TITLE,
+              font=font_title, fill=(255, 255, 255, 230))
+    y += title_h + gap
+    # Center URL (dimmer)
+    draw.text(((total_w - url_w) // 2, y), _GITHUB_URL,
+              font=font_url, fill=(180, 180, 180, 200))
+
+    return img
+
+
 def apply_overlays(ipc, url, screen_width=1920, screen_height=1080):
     """Apply ASCII art (left) and QR code with URL (right) overlays."""
-    # Generate QR first to know target height
-    qr_img = _generate_qr_with_url(url)
-    target_h = qr_img.size[1]
-
     # Left: cat ASCII art + title + github url
-    art_text = _CAT_ART + "\n\n" + _TITLE + "\n" + _GITHUB_URL
-    # Scale font to roughly match QR overlay height
-    art_img = _generate_text_overlay(art_text, font_size=16, target_height=target_h)
+    art_img = _generate_art_overlay()
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
 
     # Right: QR code + URL
