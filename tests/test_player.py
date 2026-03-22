@@ -169,7 +169,7 @@ class TestMpvPlayer:
 
         player.load_video("https://youtube.com/watch?v=test", start_percent=42.5)
         mock_ipc.command.assert_called_with(
-            "loadfile", "https://youtube.com/watch?v=test", "replace", "start=42.5%"
+            "loadfile", "https://youtube.com/watch?v=test", "replace", -1, {"start": "42.5%"}
         )
 
     @patch("cinegatto.player.mpv_player.subprocess.Popen")
