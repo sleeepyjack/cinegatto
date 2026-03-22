@@ -30,26 +30,23 @@ class ConfigError(Exception):
     pass
 
 
-def load_config(user_config_path=None, default_config_dir=None):
-    """Load config by merging defaults with optional user overrides.
+def load_config(config_path=None):
+    """Load config by merging hardcoded defaults with cinegatto.json.
 
-    Priority: user config > default.json file > hardcoded DEFAULTS.
+    Priority: config file > hardcoded DEFAULTS.
+    Looks for cinegatto.json at the repo root by default.
     """
     config = dict(DEFAULTS)
 
-    # Load default.json from config dir if it exists
-    if default_config_dir is None:
-        default_config_dir = str(Path(__file__).parent.parent / "config")
-    default_file = os.path.join(default_config_dir, "default.json")
-    if os.path.isfile(default_file):
-        config.update(_load_json(default_file))
+    # Resolve config file path
+    if config_path is None:
+        config_path = str(Path(__file__).parent.parent / "cinegatto.json")
 
-    # Load user config if provided and exists
-    if user_config_path is not None:
-        if os.path.isfile(user_config_path):
-            config.update(_load_json(user_config_path))
-        else:
-            logger.debug("User config not found at %s, using defaults", user_config_path)
+    if os.path.isfile(config_path):
+        config.update(_load_json(config_path))
+        logger.debug("Loaded config from %s", config_path)
+    else:
+        logger.debug("No config file at %s, using defaults", config_path)
 
     _validate(config)
     logger.debug("Config loaded", extra={"config": config})

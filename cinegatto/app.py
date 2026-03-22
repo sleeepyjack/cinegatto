@@ -52,7 +52,7 @@ def _fetch_with_retry(playlist_url: str, max_attempts: int = 5, base_delay: floa
 
 def run(config_path: str = None) -> None:
     """Main entry point — start cinegatto."""
-    config = load_config(user_config_path=config_path)
+    config = load_config(config_path=config_path)
     ring_handler = setup_logging(
         level=config["log_level"],
         ring_size=config["log_ring_size"],
