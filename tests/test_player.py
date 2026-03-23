@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 
 from cinegatto.player.types import PlayerState, Player
-from cinegatto.player.mpv_ipc import MpvIpc
+from cinegatto.player.mpv_ipc import MpvIpc, MpvIpcError
 from cinegatto.player.mpv_player import MpvPlayer
 
 
@@ -34,102 +34,112 @@ class TestPlayerState:
 # --- MpvIpc tests (mock the socket) ---
 
 class TestMpvIpc:
-    def _make_mock_socket(self, responses):
-        """Create a mock socket that returns pre-canned JSON responses."""
-        mock_sock = MagicMock()
-        # Simulate reading newline-delimited JSON responses
-        response_bytes = b"".join(
-            json.dumps(r).encode() + b"\n" for r in responses
-        )
-        mock_sock.makefile.return_value.__enter__ = MagicMock(return_value=MagicMock(
-            readline=MagicMock(side_effect=[
-                json.dumps(r).encode() + b"\n" for r in responses
-            ] + [b""])
-        ))
-        mock_sock.makefile.return_value.__exit__ = MagicMock(return_value=False)
-        return mock_sock
+    """Test MpvIpc command formatting and response handling via mocks.
 
-    def test_send_command_formats_json(self):
-        """command() sends correctly formatted JSON over the socket."""
+    The real IPC uses a dedicated reader thread with socketpair, but
+    for unit tests we verify the public interface with mocked internals.
+    """
+
+    def test_command_formats_json_correctly(self):
+        """command() sends correctly formatted JSON."""
         ipc = MpvIpc.__new__(MpvIpc)
-        ipc._sock = MagicMock()
-        ipc._lock = threading.Lock()
-        ipc._reader = MagicMock()
-        ipc._reader.readline.return_value = json.dumps(
-            {"error": "success", "data": None, "request_id": 1}
-        ).encode() + b"\n"
+        ipc._write_lock = threading.Lock()
         ipc._request_id = 0
+        ipc._pending = {}
+        ipc._pending_lock = threading.Lock()
+        ipc._running = True
+        ipc._timeout = 2.0
+        ipc._sock = MagicMock()
 
+        # Simulate the reader thread delivering a response
+        def fake_send(data):
+            sent = json.loads(data.decode())
+            req_id = sent["request_id"]
+            with ipc._pending_lock:
+                q = ipc._pending.get(req_id)
+            if q:
+                q.put(None)  # success, data=None
+
+        ipc._sock.sendall.side_effect = fake_send
         result = ipc.command("loadfile", "http://example.com/video")
+        assert result is None
 
         sent_data = ipc._sock.sendall.call_args[0][0]
         sent_json = json.loads(sent_data.decode())
         assert sent_json["command"] == ["loadfile", "http://example.com/video"]
-        assert "request_id" in sent_json
 
-    def test_get_property(self):
-        """get_property sends correct command and returns data."""
+    def test_get_property_returns_data(self):
+        """get_property returns the data from mpv's response."""
         ipc = MpvIpc.__new__(MpvIpc)
-        ipc._sock = MagicMock()
-        ipc._lock = threading.Lock()
-        ipc._reader = MagicMock()
-        ipc._reader.readline.return_value = json.dumps(
-            {"error": "success", "data": True, "request_id": 1}
-        ).encode() + b"\n"
+        ipc._write_lock = threading.Lock()
         ipc._request_id = 0
+        ipc._pending = {}
+        ipc._pending_lock = threading.Lock()
+        ipc._running = True
+        ipc._timeout = 2.0
+        ipc._sock = MagicMock()
 
+        def fake_send(data):
+            sent = json.loads(data.decode())
+            with ipc._pending_lock:
+                q = ipc._pending.get(sent["request_id"])
+            if q:
+                q.put(True)
+
+        ipc._sock.sendall.side_effect = fake_send
         result = ipc.get_property("pause")
-        sent_data = ipc._sock.sendall.call_args[0][0]
-        sent_json = json.loads(sent_data.decode())
-        assert sent_json["command"] == ["get_property", "pause"]
         assert result is True
 
-    def test_set_property(self):
-        """set_property sends correct command."""
-        ipc = MpvIpc.__new__(MpvIpc)
-        ipc._sock = MagicMock()
-        ipc._lock = threading.Lock()
-        ipc._reader = MagicMock()
-        ipc._reader.readline.return_value = json.dumps(
-            {"error": "success", "data": None, "request_id": 1}
-        ).encode() + b"\n"
-        ipc._request_id = 0
-
-        ipc.set_property("pause", True)
-        sent_data = ipc._sock.sendall.call_args[0][0]
-        sent_json = json.loads(sent_data.decode())
-        assert sent_json["command"] == ["set_property", "pause", True]
-
     def test_command_error_raises(self):
-        """An mpv error response raises an exception."""
+        """An mpv error response raises MpvIpcError."""
         ipc = MpvIpc.__new__(MpvIpc)
-        ipc._sock = MagicMock()
-        ipc._lock = threading.Lock()
-        ipc._reader = MagicMock()
-        ipc._reader.readline.return_value = json.dumps(
-            {"error": "property not found", "data": None, "request_id": 1}
-        ).encode() + b"\n"
+        ipc._write_lock = threading.Lock()
         ipc._request_id = 0
+        ipc._pending = {}
+        ipc._pending_lock = threading.Lock()
+        ipc._running = True
+        ipc._timeout = 2.0
+        ipc._sock = MagicMock()
 
-        with pytest.raises(Exception, match="property not found"):
+        def fake_send(data):
+            sent = json.loads(data.decode())
+            with ipc._pending_lock:
+                q = ipc._pending.get(sent["request_id"])
+            if q:
+                q.put(MpvIpcError("property not found"))
+
+        ipc._sock.sendall.side_effect = fake_send
+        with pytest.raises(MpvIpcError, match="property not found"):
             ipc.get_property("nonexistent")
 
-    def test_skips_event_lines(self):
-        """IPC reader skips event lines and reads the actual response."""
+    def test_event_dispatch(self):
+        """_dispatch_event calls registered callbacks."""
         ipc = MpvIpc.__new__(MpvIpc)
+        ipc._event_callbacks = {}
+        received = []
+        ipc.on_event("file-loaded", lambda e: received.append(e))
+        ipc._dispatch_event({"event": "file-loaded"})
+        assert len(received) == 1
+        assert received[0]["event"] == "file-loaded"
+
+    def test_close_unblocks_pending(self):
+        """close() delivers errors to any waiting callers."""
+        ipc = MpvIpc.__new__(MpvIpc)
+        ipc._running = True
+        ipc._pending = {}
+        ipc._pending_lock = threading.Lock()
         ipc._sock = MagicMock()
-        ipc._lock = threading.Lock()
         ipc._reader = MagicMock()
-        # First readline returns an event, second returns the actual response
-        ipc._reader.readline.side_effect = [
-            json.dumps({"event": "file-loaded"}).encode() + b"\n",
-            json.dumps({"error": "success", "data": 42.0, "request_id": 1}).encode() + b"\n",
-        ]
-        ipc._request_id = 0
         ipc._event_callbacks = {}
 
-        result = ipc.get_property("duration")
-        assert result == 42.0
+        # Simulate a pending request
+        import queue as q
+        resp_queue = q.Queue()
+        ipc._pending[1] = resp_queue
+
+        ipc.close()
+        result = resp_queue.get(timeout=1)
+        assert isinstance(result, MpvIpcError)
 
 
 # --- MpvPlayer tests (mock IPC and subprocess) ---

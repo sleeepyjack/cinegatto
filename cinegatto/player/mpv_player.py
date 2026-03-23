@@ -40,7 +40,11 @@ class MpvPlayer:
         logger.info("Player started", extra={"socket": self._socket_path})
 
     def _register_event_handlers(self) -> None:
-        """Register IPC event callbacks for end-of-file handling."""
+        """Register IPC event callbacks for end-of-file handling.
+
+        Callbacks run on the IPC reader thread — must be non-blocking.
+        Retry backoff is handled via deferred timers, not inline sleep.
+        """
         if self._on_video_end:
             self._consecutive_errors = 0
 
@@ -55,17 +59,26 @@ class MpvPlayer:
                     self._consecutive_errors += 1
                     logger.warning("Video failed to load (attempt %d)",
                                    self._consecutive_errors, extra={"error": error})
+                    if not self._running:
+                        return
+                    # Deferred retry via timer — never block the reader thread
                     if self._consecutive_errors >= 5:
-                        logger.error("Too many consecutive errors, pausing auto-advance for 30s")
-                        time.sleep(30)
+                        logger.error("Too many consecutive errors, retrying in 30s")
+                        delay = 30
                         self._consecutive_errors = 0
                     else:
-                        time.sleep(2)  # brief backoff before retrying
-                    if self._running:
-                        self._on_video_end()
+                        delay = 2
+                    t = threading.Timer(delay, self._deferred_video_end)
+                    t.daemon = True
+                    t.start()
                 # reason "stop" means we loaded a new file (user action), ignore it
 
             self._ipc.on_event("end-file", handle_end_file)
+
+    def _deferred_video_end(self) -> None:
+        """Called after a delay to retry video advance (non-blocking)."""
+        if self._running and self._on_video_end:
+            self._on_video_end()
 
     def _spawn_mpv(self) -> None:
         """Start the mpv child process in idle mode."""
