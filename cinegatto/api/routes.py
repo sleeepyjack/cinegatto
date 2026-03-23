@@ -8,18 +8,16 @@ logger = logging.getLogger("cinegatto.api")
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
-# Controller is injected via init_app
 _controller = None
 _ring_handler = None
-_cache_manager = None
+_cache_service = None
 
 
-def init_api(controller, ring_handler=None, cache_manager=None):
-    """Inject the PlaybackController and optional ring buffer handler."""
-    global _controller, _ring_handler, _cache_manager
+def init_api(controller, ring_handler=None, cache_service=None):
+    global _controller, _ring_handler, _cache_service
     _controller = controller
     _ring_handler = ring_handler
-    _cache_manager = cache_manager
+    _cache_service = cache_service
 
 
 @api.route("/play", methods=["POST"])
@@ -73,9 +71,9 @@ def update_settings():
 
 @api.route("/cache", methods=["GET"])
 def cache():
-    if _cache_manager is None:
+    if _cache_service is None:
         return jsonify({"enabled": False})
-    stats = _cache_manager.get_stats()
+    stats = _cache_service.get_stats()
     stats["enabled"] = True
     return jsonify(stats)
 
@@ -83,20 +81,11 @@ def cache():
 @api.route("/cache/sync", methods=["POST"])
 def cache_sync():
     """Enqueue all playlist videos for background download."""
-    if _controller is None:
-        return jsonify({"status": "error", "message": "no controller"})
-    downloader = _controller._downloader
-    selector = _controller._selector
-    if not downloader or not selector:
+    if not _cache_service or not _controller:
         return jsonify({"status": "error", "message": "caching not enabled"})
-    entries = selector.get_all_entries()
-    enqueued = 0
-    for entry in entries:
-        if not _cache_manager or not _cache_manager.is_cached(entry["id"]):
-            downloader.enqueue(entry["id"], entry["url"])
-            enqueued += 1
-    logger.info("Cache sync requested", extra={"enqueued": enqueued, "total": len(entries)})
-    return jsonify({"status": "ok", "enqueued": enqueued, "total": len(entries)})
+    entries = _controller._selector.get_all_entries()
+    _cache_service.warm_all(entries)
+    return jsonify({"status": "ok", "total": len(entries)})
 
 
 @api.route("/logs", methods=["GET"])

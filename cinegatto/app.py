@@ -129,26 +129,25 @@ def run(config_path: str = None) -> None:
         logger.warning("Could not apply overlays")
 
     # Cache setup
-    cache_manager = None
-    downloader = None
+    cache_service = None
     if config["cache_enabled"]:
-        from cinegatto.cache.manager import CacheManager
-        from cinegatto.cache.downloader import Downloader
+        from cinegatto.cache.service import CacheService
         cache_path = config["cache_path"]
         if not cache_path:
             cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
         cache_path = os.path.expanduser(cache_path)
         max_bytes = int(config["cache_max_size_gb"] * 1024**3)
-        cache_manager = CacheManager(cache_path, max_bytes)
-        downloader = Downloader(cache_manager, config["cache_format"],
-                                cookies_from_browser=cookies_from_browser)
-        downloader.start()
+        cache_service = CacheService(
+            cache_path, max_bytes, config["cache_format"],
+            cookies_from_browser=cookies_from_browser,
+        )
+        cache_service.start()
 
     selector = Selector(entries, shuffle=config["shuffle"])
     controller = PlaybackController(
         player=player, selector=selector, display=display,
         random_start=config["random_start"],
-        cache_manager=cache_manager, downloader=downloader,
+        cache_service=cache_service,
     )
     controller_ref[0] = controller
     controller.start()
@@ -157,7 +156,7 @@ def run(config_path: str = None) -> None:
     app = Flask(__name__,
                 static_folder=os.path.join(os.path.dirname(__file__), "web", "static"),
                 static_url_path="/static")
-    init_api(controller, ring_handler, cache_manager=cache_manager)
+    init_api(controller, ring_handler, cache_service=cache_service)
     app.register_blueprint(api)
 
     @app.route("/")
@@ -168,8 +167,8 @@ def run(config_path: str = None) -> None:
     def shutdown_handler(signum, frame):
         logger.info("Received signal %s, shutting down", signum)
         controller.stop()
-        if downloader:
-            downloader.stop()
+        if cache_service:
+            cache_service.stop()
         player.shutdown()
         sys.exit(0)
 
@@ -179,7 +178,7 @@ def run(config_path: str = None) -> None:
     # Start periodic playlist refresh
     refresh_thread = threading.Thread(
         target=_playlist_refresh_loop,
-        args=(playlist_url, selector, cache_manager, cookies_from_browser),
+        args=(playlist_url, selector, cache_service, cookies_from_browser),
         daemon=True,
         name="playlist-refresh",
     )
@@ -209,7 +208,7 @@ def _standby_until_playlist(playlist_url: str, display,
 
 
 def _playlist_refresh_loop(playlist_url: str, selector: Selector,
-                           cache_manager=None, cookies_from_browser: str = "",
+                           cache_service=None, cookies_from_browser: str = "",
                            interval: float = 1800) -> None:
     """Periodically re-fetch playlist metadata (every 30 min by default)."""
     while True:
@@ -217,8 +216,8 @@ def _playlist_refresh_loop(playlist_url: str, selector: Selector,
         try:
             entries = fetch_playlist(playlist_url, cookies_from_browser=cookies_from_browser)
             selector.update_entries(entries)
-            if cache_manager:
+            if cache_service:
                 playlist_ids = {e["id"] for e in entries}
-                cache_manager.cleanup(playlist_ids)
+                cache_service.cleanup(playlist_ids)
         except Exception as e:
             logger.warning("Playlist refresh failed: %s", e)

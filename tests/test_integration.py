@@ -7,7 +7,7 @@ import pytest
 from flask import Flask
 
 from cinegatto.api.routes import api, init_api
-from cinegatto.cache.manager import CacheManager
+from cinegatto.cache.service import CacheService
 from cinegatto.controller import PlaybackController
 from cinegatto.display.noop import NoopDisplay
 from cinegatto.player.types import PlayerState
@@ -91,16 +91,21 @@ class TestCacheIntegration:
         selector = Selector(entries)
         display = NoopDisplay()
 
-        # Set up cache with a pre-cached video
-        cache = CacheManager(str(tmp_path / "cache"), 1024 * 1024 * 100)
+        cache = CacheService(str(tmp_path / "cache"), 1024 * 1024 * 100,
+                             format_str="best", cookies_from_browser="")
         cached_file = os.path.join(str(tmp_path / "cache"), "vid1.mp4")
         with open(cached_file, "wb") as f:
             f.write(b"\x00" * 100)
-        cache.register("vid1", cached_file, 100)
+        with cache._lock:
+            cache._index["entries"]["vid1"] = {
+                "file": cached_file, "size": 100, "last_played": None, "complete": True,
+            }
+            cache._recompute_size()
+            cache._save_index()
 
         controller = PlaybackController(
             player=player, selector=selector, display=display,
-            random_start=False, cache_manager=cache,
+            random_start=False, cache_service=cache,
         )
         controller.start()
         try:
@@ -112,8 +117,8 @@ class TestCacheIntegration:
         finally:
             controller.stop()
 
-    def test_cache_miss_streams_and_pauses_downloads(self, tmp_path):
-        """Cache miss: streams from YouTube, pauses downloads, enqueues for later."""
+    def test_cache_miss_streams_from_youtube(self, tmp_path):
+        """Cache miss: streams from YouTube, warms cache for later."""
         player = MagicMock()
         player.get_state.return_value = PlayerState()
         entries = [
@@ -122,24 +127,22 @@ class TestCacheIntegration:
         ]
         selector = Selector(entries, shuffle=False)
         display = NoopDisplay()
-        cache = CacheManager(str(tmp_path / "cache"), 1024 * 1024 * 100)
-        downloader = MagicMock()
+        cache = MagicMock()
+        cache.get.return_value = None  # cache miss
+        cache.contains.return_value = False
 
         controller = PlaybackController(
             player=player, selector=selector, display=display,
-            random_start=False, cache_manager=cache, downloader=downloader,
+            random_start=False, cache_service=cache,
         )
         controller.start()
         try:
             controller.next_video()
             controller._queue.join()
-            # Should stream from YouTube
             player.load_video.assert_called_once()
             loaded_url = player.load_video.call_args[0][0]
             assert "youtube.com" in loaded_url
-            # Downloads should be paused (never download while streaming)
-            downloader.pause.assert_called()
-            # Videos enqueued for later download (will run when next cache hit)
-            assert downloader.enqueue.called
+            # Cache warm should be called
+            assert cache.warm.called
         finally:
             controller.stop()

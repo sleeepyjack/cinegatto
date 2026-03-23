@@ -15,31 +15,23 @@ _SENTINEL = object()
 
 
 class PlaybackController:
-    """Coordinates player, selector, and display via a serialized command queue.
+    """Coordinates player, selector, display, and cache via a serialized command queue.
 
     All mutations go through the queue. Status reads are non-blocking.
-
-    Cache rule: NEVER download and stream at the same time.
-    - Playing from cache → downloads are allowed in background
-    - Streaming from YouTube → downloads are paused (killed if in progress)
-    - When streaming finishes and next video plays from cache → downloads resume
     """
 
     def __init__(self, player, selector, display, random_start: bool = True,
-                 cache_manager=None, downloader=None):
+                 cache_service=None):
         self._player = player
         self._selector = selector
         self._display = display
         self._random_start = random_start
-        self._cache_manager = cache_manager
-        self._downloader = downloader
+        self._cache = cache_service
         self._queue: queue.Queue = queue.Queue()
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
-        self._is_streaming = False  # True when playing from YouTube (not cache)
 
     def start(self) -> None:
-        """Start the command worker thread."""
         self._running = True
         self._worker_thread = threading.Thread(
             target=self._worker_loop, daemon=True, name="playback-controller"
@@ -48,7 +40,6 @@ class PlaybackController:
         logger.info("PlaybackController started")
 
     def stop(self) -> None:
-        """Stop the worker thread, draining remaining commands."""
         logger.info("PlaybackController stopping")
         self._running = False
         self._queue.put(_SENTINEL)
@@ -57,44 +48,35 @@ class PlaybackController:
         logger.info("PlaybackController stopped")
 
     def play(self) -> None:
-        """Submit a play command."""
         self._queue.put(("play",))
 
     def pause(self) -> None:
-        """Submit a pause command."""
         self._queue.put(("pause",))
 
     def next_video(self) -> None:
-        """Submit a next-video command."""
         self._queue.put(("next",))
 
     def previous_video(self) -> None:
-        """Submit a previous-video command."""
         self._queue.put(("previous",))
 
     def on_video_end(self) -> None:
-        """Called when the current video ends — queues next video."""
         self._queue.put(("next",))
 
     def set_shuffle(self, enabled: bool) -> None:
-        """Toggle shuffle mode on the selector."""
         self._selector._shuffle = enabled
         logger.info("Shuffle set", extra={"shuffle": enabled})
 
     def set_random_start(self, enabled: bool) -> None:
-        """Toggle random start position."""
         self._random_start = enabled
         logger.info("Random start set", extra={"random_start": enabled})
 
     def get_settings(self) -> dict:
-        """Return current playback settings."""
         return {
             "shuffle": self._selector._shuffle,
             "random_start": self._random_start,
         }
 
     def get_status(self) -> dict:
-        """Non-blocking read of current player state."""
         return self._player.get_state().to_dict()
 
     # --- Worker ---
@@ -128,13 +110,13 @@ class PlaybackController:
     def _do_play(self) -> None:
         logger.info("Executing play")
         self._display.power_on()
-        time.sleep(0.05)  # brief settle time (2s on Pi for HDMI handshake)
+        time.sleep(0.05)
         self._player.play()
 
     def _do_pause(self) -> None:
         logger.info("Executing pause")
         self._player.pause()
-        time.sleep(0.05)  # brief settle time (500ms on Pi)
+        time.sleep(0.05)
         self._display.power_off()
 
     def _do_next(self) -> None:
@@ -151,54 +133,23 @@ class PlaybackController:
         self._load_video(video)
 
     def _load_video(self, video: dict) -> None:
-        """Load a video from cache or YouTube.
-
-        Rule: never download and stream at the same time.
-        - Cache hit → play local file, allow background downloads
-        - Cache miss → kill any download, stream from YouTube, no downloads until next cache hit
-        """
+        """Load a video — from cache if available, else stream from YouTube."""
         start_percent = None
         if self._random_start:
             start_percent = random.uniform(0, 80.0)
             logger.info("Random start", extra={"start_percent": round(start_percent, 1)})
 
-        # Check cache
-        cached_path = None
-        if self._cache_manager:
-            cached_path = self._cache_manager.is_cached(video["id"])
+        cached_path = self._cache.get(video["id"]) if self._cache else None
 
         if cached_path:
-            # --- CACHE HIT: play from local file ---
-            self._is_streaming = False
-            logger.info("Cache HIT — playing from local file",
-                        extra={"video_id": video["id"], "path": cached_path})
+            logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
-            self._cache_manager.touch(video["id"])
-
-            # Safe to download in background — no streaming conflict
-            if self._downloader:
-                self._downloader.resume()
-                # Enqueue uncached videos for background download
-                for entry in self._selector.peek_next(n=1):
-                    self._downloader.enqueue(entry["id"], entry["url"])
-                # Also enqueue the currently playing video's "other" playlist entries
-                self._downloader.enqueue(video["id"], video["url"])
         else:
-            # --- CACHE MISS: stream from YouTube ---
-            self._is_streaming = True
-
-            # Kill any in-progress download — no concurrent streaming + downloading
-            if self._downloader:
-                self._downloader.pause()
-                logger.info("Downloads paused — streaming from YouTube",
-                            extra={"video_id": video["id"]})
-
-            logger.info("Cache MISS — streaming from YouTube",
-                        extra={"video_id": video["id"]})
+            logger.info("Cache MISS — streaming", extra={"video_id": video["id"]})
             self._player.load_video(video["url"], start_percent=start_percent)
 
-            # Enqueue this video for download later (will run when we next play from cache)
-            if self._downloader:
-                self._downloader.enqueue(video["id"], video["url"])
-                for entry in self._selector.peek_next(n=1):
-                    self._downloader.enqueue(entry["id"], entry["url"])
+        # Always request caching (service handles dedup/queue)
+        if self._cache:
+            self._cache.warm(video["id"], video["url"])
+            for entry in self._selector.peek_next(n=1):
+                self._cache.warm(entry["id"], entry["url"])
