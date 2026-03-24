@@ -54,6 +54,9 @@ class CacheService:
         self._proc_lock = threading.Lock()
         self._running = False
         self._last_error: Optional[dict] = None
+        self._downloads_completed = 0
+        self._downloads_failed = 0
+        self._current_download_id: Optional[str] = None
 
         os.makedirs(cache_path, exist_ok=True)
         self._load_index()
@@ -160,6 +163,10 @@ class CacheService:
                 "max_size_mb": self._max_size // (1024 * 1024),
                 "hits": self._hits,
                 "misses": self._misses,
+                "downloads_completed": self._downloads_completed,
+                "downloads_failed": self._downloads_failed,
+                "queue_depth": self._download_queue.qsize(),
+                "current_download": self._current_download_id,
                 "last_error": self._last_error,
             }
 
@@ -175,11 +182,14 @@ class CacheService:
                 self._download_queue.task_done()
                 break
             _, video_id, url = item
+            self._current_download_id = video_id
             try:
                 self._download(video_id, url)
             except Exception:
+                self._downloads_failed += 1
                 logger.exception("Download failed", extra={"video_id": video_id})
             finally:
+                self._current_download_id = None
                 with self._queued_lock:
                     self._queued_ids.discard(video_id)
                 self._download_queue.task_done()
@@ -248,6 +258,7 @@ class CacheService:
                     "video_id": video_id, "exit_code": returncode,
                     "stderr": stderr, "at": datetime.now(timezone.utc).isoformat(),
                 }
+                self._downloads_failed += 1
                 logger.warning("yt-dlp exited with code %d", returncode,
                                extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
@@ -290,6 +301,8 @@ class CacheService:
             }
             self._recompute_size()
             self._save_index()
+        self._downloads_completed += 1
+        self._last_error = None  # clear stale error on success
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
