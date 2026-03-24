@@ -1,3 +1,18 @@
+"""Configuration loading with a two-layer merge chain.
+
+Merge priority (highest wins):
+  1. cinegatto.json (user-editable file at the repo root)
+  2. DEFAULTS (hardcoded below)
+
+The user only needs to specify overrides in cinegatto.json; any missing keys
+fall back to DEFAULTS via dict.update(). This means a minimal config file
+(e.g., just {"playlist_url": "..."}) is valid.
+
+Validation is type-based: each key has a type predicate in VALIDATORS. This
+catches config file typos (e.g., "audio": "yes" instead of true) early with
+a clear error message, rather than failing cryptically at runtime.
+"""
+
 import json
 import logging
 import os
@@ -5,6 +20,8 @@ from pathlib import Path
 
 logger = logging.getLogger("cinegatto.config")
 
+# Every key here is a valid config option with its default value.
+# The full set also serves as documentation of available settings.
 DEFAULTS = {
     "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd",
     "api_port": 8080,
@@ -23,6 +40,9 @@ DEFAULTS = {
     "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
 }
 
+# Type validators — only check type, not semantic validity (e.g., port range).
+# Keeping validators simple avoids rejecting configs that are technically valid
+# but unusual (e.g., api_port=80 on a Pi running as root).
 VALIDATORS = {
     "playlist_url": lambda v: isinstance(v, str),
     "api_port": lambda v: isinstance(v, int),
@@ -78,6 +98,12 @@ def _load_json(path):
 
 
 def _validate(config):
+    """Validate types of all known config keys.
+
+    Only validates keys that exist in VALIDATORS — unknown keys from the
+    config file are silently passed through. This is intentional: it allows
+    forward-compatible config files that include keys for newer versions.
+    """
     for key, check in VALIDATORS.items():
         if key in config and not check(config[key]):
             raise ConfigError(

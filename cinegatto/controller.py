@@ -1,4 +1,18 @@
-"""PlaybackController — serializes all player commands via a single worker thread."""
+"""PlaybackController — serializes all player commands via a single worker thread.
+
+Design: all state-mutating operations (play, pause, next, previous, seek) are
+enqueued as tuples and executed sequentially by a single worker thread. This
+eliminates race conditions between the API (Flask threads), the player's
+on_video_end callback (mpv IPC reader thread), and the playlist refresh thread
+— none of them touch the player directly.
+
+Read-only queries (get_status, get_settings) bypass the queue and read directly
+from the player/selector, which is safe because those reads are atomic or
+protected by their own locks.
+
+The command queue pattern also means the API never blocks waiting for mpv IPC
+round-trips; it just enqueues and returns immediately.
+"""
 
 import logging
 import queue
@@ -11,6 +25,8 @@ from cinegatto.player.types import Player, PlayerState
 
 logger = logging.getLogger("cinegatto.controller")
 
+# Unique object used to signal the worker thread to exit. Using object()
+# instead of None avoids any chance of collision with a valid command tuple.
 _SENTINEL = object()
 
 
@@ -117,6 +133,9 @@ class PlaybackController:
 
     def _do_play(self) -> None:
         logger.info("Executing play")
+        # Order: power on display first, brief delay for HDMI signal to stabilize,
+        # then un-black the video and unpause. Reversing this would show a flash
+        # of video on a monitor that's still waking up.
         self._display.power_on()
         time.sleep(0.05)
         self._player.show_video(True)
@@ -124,6 +143,9 @@ class PlaybackController:
 
     def _do_pause(self) -> None:
         logger.info("Executing pause")
+        # Order: pause playback, black out video (so the last frame isn't frozen
+        # on screen during HDMI signal loss), brief delay, then power off display.
+        # Inverse of _do_play.
         self._player.pause()
         self._player.show_video(False)
         time.sleep(0.05)
@@ -143,7 +165,18 @@ class PlaybackController:
         self._load_video(video)
 
     def _load_video(self, video: dict) -> None:
-        """Load a video — from cache if available, else stream from YouTube."""
+        """Load a video — from cache if available, else stream from YouTube.
+
+        Cache interaction pattern:
+        - get() is synchronous and instant (index lookup + file existence check).
+        - warm() is fire-and-forget; it enqueues a background download. The cache
+          service deduplicates, so calling warm() on an already-cached or
+          already-queued video is a no-op.
+        - We also pre-warm the next video (peek_next) so it's likely cached
+          by the time the current one finishes.
+        """
+        # Cap at 80% to avoid starting near the end where the video might be
+        # credits or a fade-out.
         start_percent = None
         if self._random_start:
             start_percent = random.uniform(0, 80.0)
@@ -161,6 +194,7 @@ class PlaybackController:
         # Always request caching (service handles dedup/queue)
         if self._cache:
             self._cache.warm(video["id"], video["url"])
+            # Pre-warm the next video so it's ready when the current one ends
             for entry in self._selector.peek_next(n=1):
                 self._cache.warm(entry["id"], entry["url"])
 

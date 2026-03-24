@@ -1,8 +1,31 @@
 """Thin wrapper around mpv's JSON IPC protocol over a Unix domain socket.
 
-Uses a dedicated reader thread to continuously consume events and route
-command responses to waiting callers. Events are dispatched immediately
-without blocking the command path.
+Threading architecture and why events/responses are decoupled:
+
+mpv sends two kinds of JSON messages over the socket, interleaved on the
+same stream:
+  1. Events (unsolicited): {"event": "end-file", ...}
+  2. Command responses (solicited): {"request_id": 42, "data": ..., "error": "success"}
+
+A single dedicated reader thread (_read_loop) continuously reads lines from
+the socket and routes them:
+  - Events go to registered callbacks (dispatched immediately on the reader thread).
+  - Responses go to per-request Queue objects that the calling thread is blocking on.
+
+Why a dedicated reader thread instead of read-on-demand:
+  - mpv can send events at any time. If no one is reading, the socket buffer
+    fills up, stalling mpv's event delivery.
+  - Without a reader thread, a command() call would have to skip over any
+    interleaved events while looking for its response, creating ordering bugs.
+  - Separating read from write means multiple threads can issue commands
+    concurrently (serialized by _write_lock) without worrying about whose
+    response they'll read.
+
+DEADLOCK RISK: Event callbacks run on the reader thread. If a callback calls
+command() and the write lock is held by another thread that's waiting for a
+response (which the blocked reader can't deliver), you get a deadlock. Callers
+must keep callbacks non-blocking — use threading.Timer or queue dispatch to
+defer IPC calls out of the callback.
 """
 
 import json
@@ -32,9 +55,14 @@ class MpvIpc:
     def __init__(self, socket_path: str, timeout: float = 5.0):
         self._socket_path = socket_path
         self._timeout = timeout
+        # Serializes socket writes. Only one command can be in-flight at a time
+        # because we need to register the response queue before sending, and
+        # the request_id counter must be incremented atomically with the send.
         self._write_lock = threading.Lock()
         self._request_id = 0
         self._event_callbacks: dict[str, list[Callable]] = {}
+        # Maps request_id -> Queue. The reader thread puts the response into
+        # the queue; the calling thread blocks on queue.get(timeout).
         self._pending: dict[int, queue.Queue] = {}
         self._pending_lock = threading.Lock()
         self._running = True
@@ -95,7 +123,10 @@ class MpvIpc:
     def on_event(self, event_name: str, callback: Callable) -> None:
         """Register a callback for an mpv event.
 
-        Callbacks run on the reader thread — keep them fast and non-blocking.
+        WARNING: Callbacks run on the reader thread. If a callback issues an
+        IPC command (directly or indirectly), it will deadlock if another
+        thread holds _write_lock and is waiting for a response. Always defer
+        IPC-calling work to a separate thread (e.g., threading.Timer).
         """
         self._event_callbacks.setdefault(event_name, []).append(callback)
 
@@ -134,10 +165,11 @@ class MpvIpc:
                 break
 
             if "event" in data and "request_id" not in data:
-                # Event message — dispatch to callbacks
+                # Unsolicited event — dispatch to callbacks on this thread.
                 self._dispatch_event(data)
             elif "request_id" in data:
-                # Command response — route to waiting caller
+                # Solicited command response — route to the thread that sent
+                # the command by putting the result into its per-request queue.
                 req_id = data["request_id"]
                 with self._pending_lock:
                     resp_queue = self._pending.pop(req_id, None)
@@ -147,7 +179,8 @@ class MpvIpc:
                     else:
                         resp_queue.put(data.get("data"))
 
-        # Reader thread exiting — unblock any pending callers
+        # Reader thread exiting — unblock any threads waiting on command responses.
+        # Without this, those threads would hang forever on queue.get().
         with self._pending_lock:
             for rq in self._pending.values():
                 rq.put(MpvIpcError("Connection closed"))

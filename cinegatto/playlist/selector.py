@@ -1,4 +1,22 @@
-"""Selector — video selection with shuffle/sequential modes and history."""
+"""Selector — video selection with shuffle/sequential modes and history.
+
+Two playback modes:
+  - Shuffle: random.choice from the full playlist. To avoid repeats, the
+    currently-playing video is excluded from candidates (when playlist has >1
+    entry). This is a simple no-immediate-repeat strategy, not full-deck shuffle,
+    because with a small playlist (~20 videos) full-deck shuffle would feel
+    predictable ("I know that one is coming soon").
+  - Sequential: linear walk through the playlist with wraparound. _index
+    tracks the next position to play.
+
+History is stored in a bounded deque (default 50). The deque's maxlen provides
+automatic eviction of old entries, so we never need manual cleanup. The
+previous() method pops from the deque, effectively rewinding through history.
+
+All methods are thread-safe via self._lock because pick/previous can be called
+from the controller worker thread while update_entries is called from the
+playlist refresh thread.
+"""
 
 import collections
 import logging
@@ -19,8 +37,11 @@ class Selector:
     def __init__(self, entries: list[dict], shuffle: bool = True, history_size: int = 50):
         self._entries = list(entries)
         self._shuffle = shuffle
+        # Bounded deque: maxlen auto-evicts oldest entries when full.
+        # Stores previously-played videos for the "previous" button.
         self._history = collections.deque(maxlen=history_size)
         self._current: Optional[dict] = None
+        # _index is only used in sequential mode; tracks next-to-play position.
         self._index = 0
         self._lock = threading.Lock()
 
@@ -31,6 +52,9 @@ class Selector:
                 raise ValueError("Cannot pick from empty playlist")
             if self._shuffle:
                 candidates = self._entries
+                # No-immediate-repeat: exclude the currently-playing video so the
+                # same video never plays twice in a row. Only when >1 video exists
+                # (otherwise we'd have zero candidates).
                 if self._current and len(self._entries) > 1:
                     candidates = [e for e in self._entries if e["id"] != self._current["id"]]
                 video = random.choice(candidates)
@@ -52,10 +76,12 @@ class Selector:
             if not self._history:
                 return None
             prev = self._history.pop()
-            # In sequential mode, step the index back too
+            # In sequential mode, rewind the index so that calling pick() next
+            # returns the video we just skipped back from (i.e., the user can
+            # go back and then forward to return to where they were).
             if not self._shuffle and self._current in self._entries:
                 idx = self._entries.index(self._current)
-                self._index = idx  # so next pick() replays current
+                self._index = idx
             self._current = prev
             logger.debug("Going to previous", extra={"video_id": prev["id"], "title": prev["title"]})
             return prev
@@ -63,8 +89,10 @@ class Selector:
     def peek_next(self, n: int = 1) -> list[dict]:
         """Preview the next N videos without advancing playback.
 
-        In sequential mode, peeks at the next indices.
-        In shuffle mode, returns random picks (not committed to history).
+        Used by the controller to pre-warm the cache for upcoming videos.
+        In sequential mode, peeks at the next indices (deterministic).
+        In shuffle mode, returns random picks (non-deterministic, and these
+        picks are NOT committed to history — the actual pick() may differ).
         """
         with self._lock:
             if not self._entries:

@@ -1,4 +1,27 @@
-"""Application bootstrap — wires all components together."""
+"""Application bootstrap — wires all components together.
+
+This is the top-level entry point that orchestrates the startup sequence.
+The ordering is intentional and load-bearing:
+
+  1. Config + logging — must come first so all subsequent components log properly.
+  2. Display — created early so we can power off the monitor if playlist fetch fails.
+  3. Playlist fetch (with retry) — needed before we can build the Selector.
+  4. Player (mpv) — started before the Controller because the Controller issues
+     play commands immediately. mpv is launched in --idle mode so it's ready.
+  5. QR overlay — applied right after the player starts, before any video loads.
+  6. Cache service — optional, started before the Controller so cache lookups
+     work from the very first video.
+  7. Controller — depends on player, selector, display, and cache. Uses a
+     mutable ref (controller_ref) to break the circular dependency where
+     the player's on_video_end callback needs to call back into the controller,
+     but the controller hasn't been constructed yet when the player is created.
+  8. Flask API — registered after the controller exists so routes can reference it.
+  9. Playlist refresh thread — daemon thread that periodically re-fetches the
+     YouTube playlist and evicts removed videos from cache.
+ 10. Auto-play first video — fires only after everything is wired up.
+ 11. Flask run (blocking) — takes over the main thread. Shutdown is handled
+     via signal handlers (SIGTERM/SIGINT) registered before this call.
+"""
 
 import logging
 import os
@@ -24,11 +47,17 @@ logger = logging.getLogger("cinegatto.app")
 
 
 def _is_pi() -> bool:
+    """Detect Raspberry Pi by OS + architecture. Avoids reading /proc files for portability."""
     return platform.system() == "Linux" and platform.machine().startswith("aarch64")
 
 
 def _get_lan_ip() -> str:
-    """Get the LAN IP address of this machine."""
+    """Get the LAN IP address of this machine.
+
+    Uses a UDP connect trick: connecting a UDP socket doesn't send any data,
+    but the OS picks the right source interface for routing to 8.8.8.8,
+    revealing our LAN IP. Works without actual network access.
+    """
     import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -39,6 +68,11 @@ def _get_lan_ip() -> str:
 
 
 def _create_display():
+    """Factory: real display control on Pi, no-op on macOS.
+
+    Deferred import of PiDisplay avoids importing Pi-specific deps (vcgencmd,
+    xrandr wrappers) on macOS where they don't exist.
+    """
     if _is_pi():
         from cinegatto.display.pi import PiDisplay
         return PiDisplay()
@@ -70,8 +104,9 @@ def run(config_path: str = None) -> None:
         level=config["log_level"],
         ring_size=config["log_ring_size"],
         log_file=config.get("log_file"),
-    ).handlers[1]  # second handler is the ring buffer
-    # Find the ring buffer handler more robustly
+    ).handlers[1]  # initial index-based lookup (fragile, overridden below)
+    # Find the ring buffer handler by type instead of positional index,
+    # because handler ordering could change if setup_logging is modified.
     root_logger = logging.getLogger("cinegatto")
     ring_handler = None
     for h in root_logger.handlers:
@@ -100,7 +135,11 @@ def run(config_path: str = None) -> None:
         # Keep retrying in background
         entries = _standby_until_playlist(playlist_url, display)
 
-    # Build components — use a mutable ref so player can call controller
+    # Break circular dependency: player needs on_video_end -> controller.next_video,
+    # but controller needs player. We use a mutable list as an indirection layer
+    # so the closure captures the list (stable reference) and reads [0] at call time
+    # (after controller is assigned). A single-element list is used instead of a
+    # nonlocal variable because on_video_end is defined before controller exists.
     controller_ref = [None]
 
     def on_video_end():
@@ -156,7 +195,8 @@ def run(config_path: str = None) -> None:
     def index():
         return app.send_static_file("index.html")
 
-    # Graceful shutdown
+    # Graceful shutdown — order matters: stop the controller (drains command queue),
+    # then cache (kills any in-progress yt-dlp download), then player (terminates mpv).
     def shutdown_handler(signum, frame):
         logger.info("Received signal %s, shutting down", signum)
         controller.stop()
@@ -181,13 +221,20 @@ def run(config_path: str = None) -> None:
     logger.info("Auto-playing first video")
     controller.next_video()
 
-    # Start Flask (blocking)
+    # Start Flask (blocking) — this is the last call in run(); it takes over the
+    # main thread. use_reloader=False is critical: the reloader forks the process,
+    # which would duplicate mpv and all daemon threads.
     logger.info("Starting API server on port %d", config["api_port"])
     app.run(host="0.0.0.0", port=config["api_port"], threaded=True, use_reloader=False)
 
 
 def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
-    """Keep retrying playlist fetch until successful."""
+    """Keep retrying playlist fetch until successful.
+
+    Called when the initial fetch (with exponential backoff) exhausted all attempts.
+    At this point the display is already powered off. We retry every 60s indefinitely
+    because on a headless Pi there's nothing else to do — the network may come up later.
+    """
     while True:
         time.sleep(60)
         try:
@@ -201,7 +248,12 @@ def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
 
 def _playlist_refresh_loop(playlist_url: str, selector: Selector,
                            cache_service=None, interval: float = 1800) -> None:
-    """Periodically re-fetch playlist metadata."""
+    """Periodically re-fetch playlist metadata.
+
+    Runs as a daemon thread. On each refresh we update the selector's entries
+    (so new videos appear and removed ones stop being picked) and tell the
+    cache to mark removed videos for priority eviction.
+    """
     while True:
         time.sleep(interval)
         try:

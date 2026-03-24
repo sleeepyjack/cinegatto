@@ -1,3 +1,19 @@
+"""Structured JSON logging with a ring buffer for the /api/logs endpoint.
+
+Three handlers are attached to the "cinegatto" logger:
+  1. Console (StreamHandler) — for interactive debugging and journalctl on Pi.
+  2. File (FileHandler, mode="w") — overwrites each run so the log file doesn't
+     grow unbounded on the Pi's SD card. Historical logs live in journalctl.
+  3. Ring buffer (RingBufferHandler) — in-memory deque that the /api/logs
+     endpoint reads from. This avoids file I/O on every API request and gives
+     the web UI fast access to recent logs.
+
+The ring buffer uses a bounded deque (maxlen=ring_size). When full, the oldest
+entry is automatically evicted. get_entries() returns entries[-limit:] (the TAIL
+of the buffer) because the most recent entries are the most useful — if the
+caller asks for 50 entries, they want the last 50, not the first 50 out of 500.
+"""
+
 import collections
 import logging
 import os
@@ -9,7 +25,12 @@ _DEFAULT_LOG_FILE = str(Path(__file__).parent.parent / ".cinegatto.log")
 
 
 class RingBufferHandler(logging.Handler):
-    """In-memory ring buffer that stores log entries for the /api/logs endpoint."""
+    """In-memory ring buffer that stores log entries for the /api/logs endpoint.
+
+    Each emit() formats the record as JSON (via JsonFormatter) and appends
+    the parsed dict to the deque. Storing dicts (not raw strings) avoids
+    re-parsing on every API request.
+    """
 
     def __init__(self, max_size=500):
         super().__init__()
@@ -28,11 +49,14 @@ class RingBufferHandler(logging.Handler):
         self._buffer.append(entry)
 
     def get_entries(self, level=None, limit=100):
+        # Snapshot the deque to a list (thread-safe: deque iteration is atomic in CPython).
         entries = list(self._buffer)
         if level is not None:
             threshold = getattr(logging, level.upper(), logging.DEBUG)
             entries = [e for e in entries if logging.getLevelName(e.get("level", "DEBUG")) >= threshold]
-        # Return the most recent entries (tail of the buffer)
+        # entries[-limit:] returns the LAST `limit` items — i.e., the most recent
+        # log entries. Using [:limit] would return the oldest, which is wrong for
+        # a "show me recent logs" API.
         return entries[-limit:]
 
 
@@ -58,9 +82,10 @@ def setup_logging(level="debug", ring_size=500, log_file=None):
     console.setFormatter(formatter)
     logger.addHandler(console)
 
-    # File handler
+    # File handler — mode="w" overwrites on each startup to prevent the log file
+    # from growing unbounded on the Pi's limited SD card storage.
     log_path = os.path.expanduser(log_file) if log_file else _DEFAULT_LOG_FILE
-    file_handler = logging.FileHandler(log_path, mode="w")  # overwrite each run
+    file_handler = logging.FileHandler(log_path, mode="w")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

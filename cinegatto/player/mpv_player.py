@@ -1,4 +1,32 @@
-"""MpvPlayer — manages an mpv child process and communicates via JSON IPC."""
+"""MpvPlayer — manages an mpv child process and communicates via JSON IPC.
+
+Lifecycle: mpv is started in --idle mode (no file loaded) so the IPC socket
+is available immediately. Videos are loaded later via loadfile commands.
+
+Key design decisions:
+
+  Watchdog: A background thread periodically pings mpv via IPC. If mpv crashes
+  or becomes unresponsive, the watchdog triggers _restart() which re-spawns mpv
+  and reconnects IPC. This is critical for a headless Pi that must keep running
+  unattended.
+
+  Seeking flag (_seeking): mpv fires an "end-file" event with reason "error"
+  when a seek interrupts a loading file. Without the flag, the end-file handler
+  would interpret this as a playback failure and trigger next_video, skipping
+  the video the user just seeked in. The flag is set in seek() and cleared on
+  "playback-restart" (mpv signals that decoding resumed after the seek).
+
+  Restart retry logic: _restart() uses exponential backoff (2^attempt seconds,
+  capped at 30s) with a maximum of 5 attempts. Each attempt re-spawns mpv,
+  reconnects IPC, and re-registers event handlers. If all attempts fail, the
+  player stops (the watchdog is not restarted). In practice, transient failures
+  (e.g., socket file race) usually succeed on the second attempt.
+
+  Event handler registration: Handlers are registered via the IPC on_event()
+  mechanism, which means they run on the IPC reader thread. To avoid blocking
+  that thread (and risking deadlock — see mpv_ipc.py), retry delays use
+  threading.Timer to defer the callback to a new thread.
+"""
 
 import logging
 import os
@@ -28,6 +56,7 @@ class MpvPlayer:
         self._ipc: Optional[MpvIpc] = None
         self._running = False
         self._watchdog_thread: Optional[threading.Thread] = None
+        # Guards against spurious end-file events during seeks. See module docstring.
         self._seeking = False
 
     def start(self) -> None:
@@ -50,14 +79,20 @@ class MpvPlayer:
             self._consecutive_errors = 0
 
             def handle_playback_restart(_event):
+                # "playback-restart" means mpv resumed decoding (after a seek
+                # or new file load). Safe to clear the seeking flag now.
                 self._seeking = False
 
             self._ipc.on_event("playback-restart", handle_playback_restart)
 
             def handle_end_file(event):
+                # mpv fires end-file for several reasons:
+                #   "eof"   — video finished naturally -> advance to next
+                #   "error" — load/decode failure -> retry with backoff
+                #   "stop"  — user loaded a new file -> ignore (not a failure)
                 reason = event.get("reason", "")
                 error = event.get("file_error", "")
-                # Ignore end-file events while a seek is in progress
+                # Seeks can trigger spurious end-file with reason "error"
                 if self._seeking:
                     logger.debug("Ignoring end-file during seek", extra={"reason": reason})
                     return
@@ -71,7 +106,9 @@ class MpvPlayer:
                                    self._consecutive_errors, extra={"error": error})
                     if not self._running:
                         return
-                    # Deferred retry via timer — never block the reader thread
+                    # Use threading.Timer to defer the retry — NEVER sleep on
+                    # the reader thread, as that would block all event dispatch
+                    # and command response routing (see mpv_ipc.py deadlock risk).
                     if self._consecutive_errors >= 5:
                         logger.error("Too many consecutive errors, retrying in 30s")
                         delay = 30
@@ -81,7 +118,7 @@ class MpvPlayer:
                     t = threading.Timer(delay, self._deferred_video_end)
                     t.daemon = True
                     t.start()
-                # reason "stop" means we loaded a new file (user action), ignore it
+                # reason "stop" = we loaded a new file (user action), not a failure
 
             self._ipc.on_event("end-file", handle_end_file)
 
@@ -152,13 +189,21 @@ class MpvPlayer:
         self._ipc.set_property("pause", True)
 
     def seek(self, position: float) -> None:
-        """Seek to an absolute position in seconds."""
+        """Seek to an absolute position in seconds.
+
+        Sets _seeking=True BEFORE issuing the command to ensure any end-file
+        event triggered by the seek is suppressed. Cleared on playback-restart.
+        """
         logger.debug("Seeking", extra={"position": position})
         self._seeking = True
         self._ipc.command("seek", position, "absolute")
 
     def show_video(self, visible: bool) -> None:
-        """Show or black out the video. Overlays remain visible."""
+        """Show or black out the video. Overlays remain visible.
+
+        Uses brightness/contrast=-100 instead of hiding the window because
+        mpv overlays (QR code, cat art) must stay visible even when paused.
+        """
         try:
             self._ipc.set_property("brightness", 0 if visible else -100)
             self._ipc.set_property("contrast", 0 if visible else -100)
@@ -226,7 +271,11 @@ class MpvPlayer:
     # --- Watchdog ---
 
     def _start_watchdog(self) -> None:
-        """Start a background thread that pings mpv periodically."""
+        """Start a background thread that pings mpv periodically.
+
+        Polls at half the watchdog_timeout interval so a crash is detected
+        within one full timeout period.
+        """
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop, daemon=True, name="mpv-watchdog"
         )
@@ -256,7 +305,14 @@ class MpvPlayer:
                 break
 
     def _restart(self) -> None:
-        """Restart mpv after a crash, with bounded retries and backoff."""
+        """Restart mpv after a crash, with bounded retries and backoff.
+
+        Each attempt fully tears down the old state (close IPC, remove socket)
+        and rebuilds from scratch (spawn, connect, register handlers, new watchdog).
+        Backoff is exponential: 2s, 4s, 8s, 16s, 30s (capped). If all 5 attempts
+        fail, the player is effectively dead — a human restart of the service is
+        needed (systemd will handle this on the Pi).
+        """
         max_attempts = 5
         for attempt in range(1, max_attempts + 1):
             if not self._running:
@@ -268,6 +324,8 @@ class MpvPlayer:
             try:
                 self._spawn_mpv()
                 self._connect_ipc()
+                # Re-register event handlers on the new IPC connection.
+                # The old handlers were lost when the old IPC was closed.
                 self._register_event_handlers()
                 self._start_watchdog()
                 logger.info("mpv restarted successfully")

@@ -1,4 +1,28 @@
-"""Generate QR code and ASCII art overlays for mpv."""
+"""Generate QR code and ASCII art overlays for mpv.
+
+Overlays show the web UI URL (as a QR code, top-right) and branding (cat art +
+title, top-left). They're rendered once to BGRA files on disk and then applied
+via mpv's overlay-add command.
+
+Key design decisions:
+
+  Repositioning on playback-restart: mpv's OSD dimensions (osd-width) are only
+  accurate after a video is loaded and decoding starts. Before that, osd-width
+  may be 0 or the previous video's dimensions. So we re-read osd-width and
+  reposition overlays on every "playback-restart" event (fired when mpv begins
+  rendering a new file or resumes after a seek).
+
+  Threading requirement: The playback-restart callback runs on the IPC reader
+  thread (see mpv_ipc.py). Repositioning requires IPC calls (get_property,
+  overlay-add), which would deadlock if called from the reader thread (the
+  reader can't deliver its own response while it's blocked calling command()).
+  So _on_playback_restart spawns a short-lived thread to do the repositioning.
+  This is cheap — it runs for ~10ms and exits.
+
+  BGRA format: mpv's overlay-add expects raw pixel data in BGRA byte order
+  (not RGBA). The _rgba_to_bgra_file helper does the channel swap and writes
+  to a temp file that persists for the process lifetime.
+"""
 
 import logging
 import tempfile
@@ -185,6 +209,8 @@ def apply_overlays(ipc, url):
     qr_path, qr_w, qr_h = _rgba_to_bgra_file(qr_img)
 
     def _position_overlays():
+        # osd-width reflects the actual output resolution. Falls back to 1920
+        # if unavailable (mpv in idle or on a weird display).
         try:
             osd_w = ipc.get_property("osd-width") or 1920
         except Exception:
@@ -201,7 +227,9 @@ def apply_overlays(ipc, url):
         except Exception:
             logger.warning("Could not apply overlays")
 
-    # Reposition when a video starts (callback runs on reader thread — defer IPC calls)
+    # Reposition when a video starts. The callback runs on the IPC reader thread,
+    # but _position_overlays makes IPC calls (get_property, overlay-add).
+    # Calling IPC from the reader thread would deadlock, so we spawn a thread.
     def _on_playback_restart(_event):
         t = threading.Thread(target=_position_overlays, daemon=True)
         t.start()

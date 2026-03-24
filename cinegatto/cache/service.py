@@ -1,14 +1,31 @@
 """CacheService — unified cache index + background downloader.
 
-Single service thread handles all cache operations. Downloads run one
-at a time, always (no pause/resume logic). The controller interacts
-via simple sync/async methods:
+Architecture: a single worker thread processes downloads sequentially from a
+queue. Only one yt-dlp subprocess runs at a time, which avoids saturating the
+Pi's bandwidth and disk I/O. The controller and API threads interact via a
+small public API:
 
-  get(video_id) → path or None  (instant, sync)
-  warm(video_id, url)           (async, queues download)
-  warm_all(entries)             (async, queues all uncached)
-  cleanup(playlist_ids)         (async, marks removed videos)
-  get_stats() → dict            (sync)
+  get(video_id) → path or None  (instant, sync — index lookup under lock)
+  warm(video_id, url)           (async, enqueues download if not cached/queued)
+  warm_all(entries)             (async, enqueues all uncached videos)
+  cleanup(playlist_ids)         (sync, marks removed videos for priority eviction)
+  get_stats() → dict            (sync, returns counters snapshot)
+
+The cache index (cache.json) is the source of truth for what's cached. It's
+persisted to disk on every mutation via atomic rename (write to .tmp, then
+os.replace) to avoid corruption from crashes.
+
+On startup, _reconcile() handles three recovery cases:
+  1. Partial downloads (.part/.ytdl files) left from a crash — deleted.
+  2. Index entries whose files are missing — removed from index.
+  3. .mp4 files on disk not in the index — re-added (manual file drops work).
+
+Eviction strategy (_evict_for): when the cache is full and a new download
+completes, we evict in priority order:
+  0 = incomplete entries (should not normally exist)
+  1 = videos no longer in the playlist (stale)
+  2 = active playlist videos, sorted by LRU (least recently played first)
+The currently-downloading video is protected from eviction via protect_ids.
 """
 
 import json
@@ -29,7 +46,9 @@ logger = logging.getLogger("cinegatto.cache")
 _INDEX_FILE = "cache.json"
 _INDEX_VERSION = 1
 _SENTINEL = object()
-_DOWNLOAD_GAP = 2  # seconds between downloads to avoid hammering YouTube
+# Brief pause between downloads to be a good citizen and reduce the chance
+# of YouTube rate-limiting or CAPTCHA-gating yt-dlp requests.
+_DOWNLOAD_GAP = 2
 
 
 class CacheService:
@@ -40,6 +59,8 @@ class CacheService:
         self._max_size = max_size_bytes
         self._format = format_str
 
+        # Protects the index dict, size counter, and hit/miss counters.
+        # Held briefly for reads (get) and writes (post-download registration).
         self._lock = threading.Lock()
         self._index = {"version": _INDEX_VERSION, "entries": {}}
         self._total_size = 0
@@ -47,6 +68,9 @@ class CacheService:
         self._misses = 0
 
         self._download_queue: queue.Queue = queue.Queue()
+        # _queued_ids tracks video IDs currently in the download queue (not yet
+        # started or in progress). Separate from _lock because warm() checks
+        # this from multiple threads and we don't want to hold the main lock.
         self._queued_ids: set[str] = set()
         self._queued_lock = threading.Lock()
         self._worker: Optional[threading.Thread] = None
@@ -96,7 +120,12 @@ class CacheService:
     # --- Public API (called from any thread) ---
 
     def get(self, video_id: str) -> Optional[str]:
-        """Return cached file path if available, else None. Counts hit/miss."""
+        """Return cached file path if available, else None. Counts hit/miss.
+
+        Checks both the index AND the filesystem (os.path.isfile) because the
+        file could have been deleted externally. Updates last_played on hit
+        so the LRU eviction knows which videos are actively used.
+        """
         with self._lock:
             entry = self._index["entries"].get(video_id)
             if entry and entry.get("complete") and os.path.isfile(entry["file"]):
@@ -114,7 +143,13 @@ class CacheService:
             return bool(entry and entry.get("complete") and os.path.isfile(entry.get("file", "")))
 
     def warm(self, video_id: str, url: str) -> None:
-        """Queue a video for background download (if not already cached/queued)."""
+        """Queue a video for background download (if not already cached/queued).
+
+        Three-layer dedup: contains() checks the index, _queued_ids catches
+        videos waiting in the download queue, and _download() double-checks
+        before actually downloading (in case caching completed between enqueue
+        and execution).
+        """
         if self.contains(video_id):
             return
         with self._queued_lock:
@@ -147,7 +182,12 @@ class CacheService:
         return result
 
     def cleanup(self, current_playlist_ids: set[str]) -> None:
-        """Mark videos not in the playlist for priority eviction."""
+        """Mark videos not in the playlist for priority eviction.
+
+        Does NOT delete files immediately — eviction happens lazily when space
+        is needed during _download(). This avoids deleting a video that the
+        user might re-add to the playlist later.
+        """
         with self._lock:
             for vid, entry in self._index["entries"].items():
                 entry["in_playlist"] = vid in current_playlist_ids
@@ -213,7 +253,9 @@ class CacheService:
             yt_dlp_bin = venv_bin
         yt_dlp_cmd = yt_dlp_bin or "yt-dlp"
 
-        # Pre-check: estimate file size before downloading
+        # Pre-check: ask yt-dlp for the file size without downloading.
+        # Skips the download entirely if the video is larger than the entire cache,
+        # saving bandwidth and time on the Pi's limited connection.
         estimated = self._estimate_size(yt_dlp_cmd, url)
         if estimated and estimated > self._max_size:
             logger.warning("Video too large for cache, skipping download",
@@ -291,6 +333,8 @@ class CacheService:
                     os.unlink(actual_path)
                     return
 
+        # Atomic rename: the .part file becomes the final .mp4. os.replace is
+        # atomic on POSIX, so a crash mid-rename won't leave a corrupt file.
         os.replace(actual_path, final_path)
         with self._lock:
             self._index["entries"][video_id] = {
@@ -318,15 +362,19 @@ class CacheService:
         freed = 0
         target = needed_bytes - available
 
+        # Build eviction candidates with a priority tier + LRU timestamp.
+        # Sort key: (priority, last_played) — lowest priority evicted first,
+        # then oldest within each tier. Empty string for last_played sorts
+        # before any ISO timestamp, so never-played videos evict first.
         candidates = []
         for vid, entry in list(self._index["entries"].items()):
             if vid in protect_ids:
                 continue
-            priority = 2
+            priority = 2  # default: active playlist video
             if not entry.get("complete"):
-                priority = 0
+                priority = 0  # incomplete — always evict first
             elif entry.get("in_playlist") is False:
-                priority = 1
+                priority = 1  # removed from playlist — evict before active
             last = entry.get("last_played") or ""
             candidates.append((priority, last, vid, entry))
 
@@ -362,6 +410,12 @@ class CacheService:
                 logger.warning("Corrupt cache index, starting fresh")
 
     def _save_index(self) -> None:
+        """Persist index to disk via atomic write (tmpfile + os.replace).
+
+        Must be called with self._lock held. Writing to a temp file in the
+        same directory first ensures os.replace is an atomic rename on the
+        same filesystem — a crash mid-write leaves the old index intact.
+        """
         index_path = os.path.join(self._cache_path, _INDEX_FILE)
         fd, tmp_path = tempfile.mkstemp(dir=self._cache_path, suffix=".tmp")
         try:
@@ -376,6 +430,11 @@ class CacheService:
             raise
 
     def _reconcile(self) -> None:
+        """Sync index with filesystem on startup. Handles three cases:
+        1. Stale partial downloads (.part/.ytdl) from a crash — deleted.
+        2. Index entries for files that no longer exist — removed from index.
+        3. .mp4 files on disk not tracked in index — adopted into the index.
+        """
         for name in os.listdir(self._cache_path):
             path = os.path.join(self._cache_path, name)
             if name.endswith(".part") or name.endswith(".ytdl"):
@@ -408,6 +467,11 @@ class CacheService:
     # --- Helpers ---
 
     def _find_output(self, part_path: str) -> Optional[str]:
+        """Locate the actual output file after yt-dlp finishes.
+
+        yt-dlp may produce different extensions depending on merge format and
+        available codecs, so we check several possible suffixes.
+        """
         for candidate in [part_path, part_path + ".mp4", part_path + ".mkv",
                           part_path + ".webm"]:
             if os.path.isfile(candidate):
