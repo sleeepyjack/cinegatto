@@ -146,6 +146,15 @@ class MpvPlayer:
         logger.debug("Seeking", extra={"position": position})
         self._ipc.command("seek", position, "absolute")
 
+    def show_video(self, visible: bool) -> None:
+        """Show or hide the video track. When hidden, mpv shows a black screen.
+        Overlays remain visible since they're independent of the video track."""
+        try:
+            self._ipc.set_property("vid", 1 if visible else "no")
+            logger.debug("Video track %s", "shown" if visible else "hidden")
+        except Exception:
+            pass
+
     def get_state(self) -> PlayerState:
         """Read current player state from mpv properties."""
         try:

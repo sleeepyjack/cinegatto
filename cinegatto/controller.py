@@ -111,11 +111,13 @@ class PlaybackController:
         logger.info("Executing play")
         self._display.power_on()
         time.sleep(0.05)
+        self._player.show_video(True)
         self._player.play()
 
     def _do_pause(self) -> None:
         logger.info("Executing pause")
         self._player.pause()
+        self._player.show_video(False)
         time.sleep(0.05)
         self._display.power_off()
 
