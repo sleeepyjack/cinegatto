@@ -305,10 +305,18 @@ function updateLogs() {
   if (!logsOpen) return;
   fetch('/api/logs?limit=50').then(r => r.json()).then(data => {
     const el = document.getElementById('log-entries');
-    el.innerHTML = data.entries.map(e =>
-      '<div class="log-entry"><span class="level-' + e.level + '">' +
-      e.level + '</span> ' + (e.message || '') + '</div>'
-    ).join('');
+    // Build DOM nodes instead of innerHTML to avoid XSS from log messages
+    el.textContent = '';
+    data.entries.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      const span = document.createElement('span');
+      span.className = 'level-' + (e.level || 'DEBUG');
+      span.textContent = e.level || 'DEBUG';
+      div.appendChild(span);
+      div.appendChild(document.createTextNode(' ' + (e.message || '')));
+      el.appendChild(div);
+    });
     if (!logsUserScrolled) {
       el.scrollTop = el.scrollHeight;
     }

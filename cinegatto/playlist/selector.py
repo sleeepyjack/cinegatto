@@ -121,6 +121,14 @@ class Selector:
         with self._lock:
             return list(self._entries)
 
+    def get_shuffle(self) -> bool:
+        return self._shuffle
+
+    def set_shuffle(self, enabled: bool) -> None:
+        with self._lock:
+            self._shuffle = enabled
+            logger.info("Shuffle set", extra={"shuffle": enabled})
+
     def update_entries(self, entries: list[dict]) -> None:
         """Update the playlist entries (e.g., after a refresh)."""
         with self._lock:

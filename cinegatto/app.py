@@ -100,16 +100,14 @@ def _fetch_with_retry(playlist_url: str, max_attempts: int = 5,
 def run(config_path: str = None) -> None:
     """Main entry point — start cinegatto."""
     config = load_config(config_path=config_path)
-    ring_handler = setup_logging(
+    setup_logging(
         level=config["log_level"],
         ring_size=config["log_ring_size"],
         log_file=config.get("log_file"),
-    ).handlers[1]  # initial index-based lookup (fragile, overridden below)
-    # Find the ring buffer handler by type instead of positional index,
-    # because handler ordering could change if setup_logging is modified.
-    root_logger = logging.getLogger("cinegatto")
+    )
+    # Find the ring buffer handler by type (not positional index, which is fragile).
     ring_handler = None
-    for h in root_logger.handlers:
+    for h in logging.getLogger("cinegatto").handlers:
         if isinstance(h, RingBufferHandler):
             ring_handler = h
             break

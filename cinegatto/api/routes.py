@@ -73,10 +73,15 @@ def get_settings():
 @api.route("/settings", methods=["POST"])
 def update_settings():
     data = request.get_json(silent=True) or {}
+    # Strict bool validation — bool("false") == True in Python, so we must
+    # reject non-bool types to avoid silently applying the wrong setting.
+    for key in ("shuffle", "random_start"):
+        if key in data and not isinstance(data[key], bool):
+            return jsonify({"error": f"{key} must be a boolean"}), 400
     if "shuffle" in data:
-        _controller.set_shuffle(bool(data["shuffle"]))
+        _controller.set_shuffle(data["shuffle"])
     if "random_start" in data:
-        _controller.set_random_start(bool(data["random_start"]))
+        _controller.set_random_start(data["random_start"])
     logger.info("API: settings updated", extra={"settings": data})
     return jsonify(_controller.get_settings())
 
@@ -103,7 +108,7 @@ def sync():
     if _playlist_url:
         try:
             entries = fetch_playlist(_playlist_url)
-            _controller._selector.update_entries(entries)
+            _controller.update_playlist(entries)
             if _cache_service:
                 playlist_ids = {e["id"] for e in entries}
                 _cache_service.cleanup(playlist_ids)
@@ -115,13 +120,13 @@ def sync():
     # Cache sync
     cache_result = {}
     if _cache_service:
-        all_entries = _controller._selector.get_all_entries()
+        all_entries = _controller.get_playlist_entries()
         cache_result = _cache_service.warm_all(all_entries)
 
     return jsonify({
         "status": "ok",
         "playlist_refreshed": playlist_refreshed,
-        "playlist_count": len(_controller._selector.get_all_entries()),
+        "playlist_count": len(_controller.get_playlist_entries()),
         **cache_result,
     })
 

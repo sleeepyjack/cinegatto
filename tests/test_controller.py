@@ -178,13 +178,14 @@ class TestPlaybackController:
     def test_set_shuffle(self):
         """set_shuffle toggles the selector's shuffle mode."""
         selector = MagicMock()
-        selector._shuffle = True
+        selector.get_shuffle.return_value = True
         player = MagicMock()
         player.get_state.return_value = PlayerState()
         ctrl = self._make_controller(player=player, selector=selector)
         try:
             ctrl.set_shuffle(False)
-            assert selector._shuffle is False
+            selector.set_shuffle.assert_called_once_with(False)
+            selector.get_shuffle.return_value = False
             assert ctrl.get_settings()["shuffle"] is False
         finally:
             ctrl.stop()

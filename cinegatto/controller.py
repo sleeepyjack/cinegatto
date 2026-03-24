@@ -82,8 +82,7 @@ class PlaybackController:
         self._queue.put(("next",))
 
     def set_shuffle(self, enabled: bool) -> None:
-        self._selector._shuffle = enabled
-        logger.info("Shuffle set", extra={"shuffle": enabled})
+        self._selector.set_shuffle(enabled)
 
     def set_random_start(self, enabled: bool) -> None:
         self._random_start = enabled
@@ -91,9 +90,17 @@ class PlaybackController:
 
     def get_settings(self) -> dict:
         return {
-            "shuffle": self._selector._shuffle,
+            "shuffle": self._selector.get_shuffle(),
             "random_start": self._random_start,
         }
+
+    def get_playlist_entries(self) -> list[dict]:
+        """Public accessor for playlist entries (used by API sync)."""
+        return self._selector.get_all_entries()
+
+    def update_playlist(self, entries: list[dict]) -> None:
+        """Update playlist entries (used by API sync)."""
+        self._selector.update_entries(entries)
 
     def get_status(self) -> dict:
         status = self._player.get_state().to_dict()

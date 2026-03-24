@@ -77,6 +77,7 @@ class CacheService:
         self._current_proc: Optional[subprocess.Popen] = None
         self._proc_lock = threading.Lock()
         self._running = False
+        self._index_dirty = False
         self._last_error: Optional[dict] = None
         self._downloads_completed = 0
         self._downloads_failed = 0
@@ -115,6 +116,11 @@ class CacheService:
         self._download_queue.put(_SENTINEL)
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=5)
+        # Flush any dirty index state (e.g., last_played updates from get())
+        with self._lock:
+            if self._index_dirty:
+                self._save_index()
+                self._index_dirty = False
         logger.info("CacheService stopped")
 
     # --- Public API (called from any thread) ---
@@ -123,15 +129,16 @@ class CacheService:
         """Return cached file path if available, else None. Counts hit/miss.
 
         Checks both the index AND the filesystem (os.path.isfile) because the
-        file could have been deleted externally. Updates last_played on hit
-        so the LRU eviction knows which videos are actively used.
+        file could have been deleted externally. Updates last_played in memory
+        (not flushed to disk here — avoids SD card write on every playback hit).
+        Index is persisted on downloads, evictions, and shutdown.
         """
         with self._lock:
             entry = self._index["entries"].get(video_id)
             if entry and entry.get("complete") and os.path.isfile(entry["file"]):
                 self._hits += 1
                 entry["last_played"] = datetime.now(timezone.utc).isoformat()
-                self._save_index()
+                self._index_dirty = True
                 return entry["file"]
             self._misses += 1
             return None
@@ -222,14 +229,17 @@ class CacheService:
                 self._download_queue.task_done()
                 break
             _, video_id, url = item
-            self._current_download_id = video_id
+            with self._lock:
+                self._current_download_id = video_id
             try:
                 self._download(video_id, url)
             except Exception:
-                self._downloads_failed += 1
+                with self._lock:
+                    self._downloads_failed += 1
                 logger.exception("Download failed", extra={"video_id": video_id})
             finally:
-                self._current_download_id = None
+                with self._lock:
+                    self._current_download_id = None
                 with self._queued_lock:
                     self._queued_ids.discard(video_id)
                 self._download_queue.task_done()
@@ -296,11 +306,12 @@ class CacheService:
                     stderr = proc.stderr.read().decode(errors="replace")[:500]
                 except Exception:
                     pass
-                self._last_error = {
-                    "video_id": video_id, "exit_code": returncode,
-                    "stderr": stderr, "at": datetime.now(timezone.utc).isoformat(),
-                }
-                self._downloads_failed += 1
+                with self._lock:
+                    self._last_error = {
+                        "video_id": video_id, "exit_code": returncode,
+                        "stderr": stderr, "at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    self._downloads_failed += 1
                 logger.warning("yt-dlp exited with code %d", returncode,
                                extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
@@ -345,8 +356,9 @@ class CacheService:
             }
             self._recompute_size()
             self._save_index()
-        self._downloads_completed += 1
-        self._last_error = None  # clear stale error on success
+            self._index_dirty = False
+            self._downloads_completed += 1
+            self._last_error = None  # clear stale error on success
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
