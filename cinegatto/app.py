@@ -171,7 +171,7 @@ def run(config_path: str = None) -> None:
     # Start periodic playlist refresh
     refresh_thread = threading.Thread(
         target=_playlist_refresh_loop,
-        args=(playlist_url, selector, cache_service),
+        args=(playlist_url, selector, cache_service, config["playlist_refresh_sec"]),
         daemon=True,
         name="playlist-refresh",
     )
@@ -200,9 +200,8 @@ def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
 
 
 def _playlist_refresh_loop(playlist_url: str, selector: Selector,
-                           cache_service=None,
-                           interval: float = 1800) -> None:
-    """Periodically re-fetch playlist metadata (every 30 min by default)."""
+                           cache_service=None, interval: float = 1800) -> None:
+    """Periodically re-fetch playlist metadata."""
     while True:
         time.sleep(interval)
         try:

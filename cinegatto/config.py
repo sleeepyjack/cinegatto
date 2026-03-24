@@ -19,6 +19,7 @@ DEFAULTS = {
     "cache_enabled": True,
     "cache_path": "",
     "cache_max_size_gb": 16,
+    "playlist_refresh_sec": 1800,
     "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
 }
 
@@ -36,6 +37,7 @@ VALIDATORS = {
     "cache_enabled": lambda v: isinstance(v, bool),
     "cache_path": lambda v: isinstance(v, str),
     "cache_max_size_gb": lambda v: isinstance(v, (int, float)),
+    "playlist_refresh_sec": lambda v: isinstance(v, (int, float)),
     "cache_format": lambda v: isinstance(v, str),
 }
 
