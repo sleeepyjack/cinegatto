@@ -50,6 +50,13 @@ def previous_video():
     return jsonify({"status": "ok"})
 
 
+@api.route("/random_seek", methods=["POST"])
+def random_seek():
+    logger.info("API: random_seek")
+    _controller.random_seek()
+    return jsonify({"status": "ok"})
+
+
 @api.route("/status", methods=["GET"])
 def status():
     return jsonify(_controller.get_status())

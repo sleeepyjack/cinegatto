@@ -59,6 +59,9 @@ class PlaybackController:
     def previous_video(self) -> None:
         self._queue.put(("previous",))
 
+    def random_seek(self) -> None:
+        self._queue.put(("random_seek",))
+
     def on_video_end(self) -> None:
         self._queue.put(("next",))
 
@@ -104,6 +107,8 @@ class PlaybackController:
             self._do_next()
         elif action == "previous":
             self._do_previous()
+        elif action == "random_seek":
+            self._do_random_seek()
         else:
             logger.warning("Unknown command: %s", action)
 
@@ -155,3 +160,16 @@ class PlaybackController:
             self._cache.warm(video["id"], video["url"])
             for entry in self._selector.peek_next(n=1):
                 self._cache.warm(entry["id"], entry["url"])
+
+    def _do_random_seek(self) -> None:
+        """Seek to a random position in the current video (always, ignores random_start setting)."""
+        try:
+            state = self._player.get_state()
+            if state.duration > 0:
+                pos = random.uniform(0, state.duration * 0.8)
+                logger.info("Random seek", extra={"position": round(pos, 1), "duration": round(state.duration, 1)})
+                self._player.seek(pos)
+            else:
+                logger.debug("Cannot random seek — no duration available")
+        except Exception:
+            logger.debug("Cannot random seek — player may be idle")
