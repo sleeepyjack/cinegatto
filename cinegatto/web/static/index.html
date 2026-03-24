@@ -267,9 +267,7 @@ function updateSettings() {
     settings = data;
     renderSettings();
     if (data.playlist_url) {
-      const el = document.getElementById('playlist-link');
-      el.href = data.playlist_url;
-      el.textContent = 'YouTube Playlist';
+      document.getElementById('playlist-link').href = data.playlist_url;
     }
   }).catch(() => {});
 }
