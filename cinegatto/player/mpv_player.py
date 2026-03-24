@@ -236,16 +236,24 @@ class MpvPlayer:
                 break
 
     def _restart(self) -> None:
-        """Restart mpv after a crash."""
-        logger.info("Restarting mpv")
-        if self._ipc:
-            self._ipc.close()
-        self._cleanup_socket()
-        try:
-            self._spawn_mpv()
-            self._connect_ipc()
-            self._register_event_handlers()
-            self._start_watchdog()
-            logger.info("mpv restarted successfully")
-        except Exception:
-            logger.exception("Failed to restart mpv")
+        """Restart mpv after a crash, with bounded retries and backoff."""
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            if not self._running:
+                return
+            logger.info("Restarting mpv (attempt %d/%d)", attempt, max_attempts)
+            if self._ipc:
+                self._ipc.close()
+            self._cleanup_socket()
+            try:
+                self._spawn_mpv()
+                self._connect_ipc()
+                self._register_event_handlers()
+                self._start_watchdog()
+                logger.info("mpv restarted successfully")
+                return
+            except Exception:
+                logger.exception("Restart attempt %d failed", attempt)
+                delay = min(2 ** attempt, 30)
+                time.sleep(delay)
+        logger.error("mpv restart failed after %d attempts", max_attempts)

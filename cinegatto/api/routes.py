@@ -84,8 +84,9 @@ def cache_sync():
     if not _cache_service or not _controller:
         return jsonify({"status": "error", "message": "caching not enabled"})
     entries = _controller._selector.get_all_entries()
-    _cache_service.warm_all(entries)
-    return jsonify({"status": "ok", "total": len(entries)})
+    result = _cache_service.warm_all(entries)
+    result["status"] = "ok"
+    return jsonify(result)
 
 
 @api.route("/logs", methods=["GET"])

@@ -53,6 +53,7 @@ class CacheService:
         self._current_proc: Optional[subprocess.Popen] = None
         self._proc_lock = threading.Lock()
         self._running = False
+        self._last_error: Optional[dict] = None
 
         os.makedirs(cache_path, exist_ok=True)
         self._load_index()
@@ -120,14 +121,27 @@ class CacheService:
         self._download_queue.put(("download", video_id, url))
         logger.debug("Queued for caching", extra={"video_id": video_id})
 
-    def warm_all(self, entries: list[dict]) -> None:
-        """Queue all uncached videos for download."""
+    def warm_all(self, entries: list[dict]) -> dict:
+        """Queue all uncached videos for download. Returns outcome counts."""
         enqueued = 0
+        already_cached = 0
+        already_queued = 0
         for entry in entries:
-            if not self.contains(entry["id"]):
+            if self.contains(entry["id"]):
+                already_cached += 1
+            else:
+                with self._queued_lock:
+                    if entry["id"] in self._queued_ids:
+                        already_queued += 1
+                        continue
                 self.warm(entry["id"], entry["url"])
                 enqueued += 1
-        logger.info("Warm all requested", extra={"enqueued": enqueued, "total": len(entries)})
+        result = {
+            "enqueued": enqueued, "already_cached": already_cached,
+            "already_queued": already_queued, "total": len(entries),
+        }
+        logger.info("Warm all requested", extra=result)
+        return result
 
     def cleanup(self, current_playlist_ids: set[str]) -> None:
         """Mark videos not in the playlist for priority eviction."""
@@ -146,6 +160,7 @@ class CacheService:
                 "max_size_mb": self._max_size // (1024 * 1024),
                 "hits": self._hits,
                 "misses": self._misses,
+                "last_error": self._last_error,
             }
 
     # --- Download worker ---
@@ -218,16 +233,21 @@ class CacheService:
                 self._current_proc = subprocess.Popen(
                     cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                 )
-            returncode = self._current_proc.wait()
+            proc = self._current_proc
+            returncode = proc.wait()
             with self._proc_lock:
                 self._current_proc = None
 
             if returncode != 0:
                 stderr = ""
                 try:
-                    stderr = self._current_proc.stderr.read().decode(errors="replace")[:500]
+                    stderr = proc.stderr.read().decode(errors="replace")[:500]
                 except Exception:
                     pass
+                self._last_error = {
+                    "video_id": video_id, "exit_code": returncode,
+                    "stderr": stderr, "at": datetime.now(timezone.utc).isoformat(),
+                }
                 logger.warning("yt-dlp exited with code %d", returncode,
                                extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
