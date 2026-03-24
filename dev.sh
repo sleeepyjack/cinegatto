@@ -21,15 +21,12 @@ PORT=${PORT:-8080}
 LAN_IP=$(python3 -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "<your-ip>")
 
 echo ""
-echo "  ╔══════════════════════════════════════════╗"
-echo "  ║           cinegatto - cinema for cats     ║"
-echo "  ╠══════════════════════════════════════════╣"
-echo "  ║                                          ║"
-echo "  ║  Web UI:  http://localhost:${PORT}           ║"
-echo "  ║  Phone:   http://${LAN_IP}:${PORT}  ║"
-echo "  ║                                          ║"
-echo "  ║  Press Ctrl+C to stop                    ║"
-echo "  ╚══════════════════════════════════════════╝"
+echo "  cinegatto - cinema for cats"
+echo ""
+echo "  Web UI:  http://localhost:${PORT}"
+echo "  Phone:   http://${LAN_IP}:${PORT}"
+echo ""
+echo "  Press Ctrl+C to stop"
 echo ""
 
 exec ./venv/bin/python -m cinegatto "$@"
