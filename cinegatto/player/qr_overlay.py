@@ -208,6 +208,12 @@ def apply_overlays(ipc, url):
     # Position now
     _position_overlays()
 
-    # Reposition on window resize
-    ipc.on_event("video-reconfig", lambda _: _position_overlays())
+    # Reposition on window resize — must NOT run on reader thread (deadlock)
+    # Defer to a short-lived thread so IPC calls don't block the event loop
+    def _on_reconfig(_event):
+        import threading
+        t = threading.Thread(target=_position_overlays, daemon=True)
+        t.start()
+
+    ipc.on_event("video-reconfig", _on_reconfig)
     logger.info("Overlays applied with auto-reposition")
