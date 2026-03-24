@@ -208,7 +208,9 @@ let playing = false;
 let settings = { shuffle: true, random_start: true };
 
 function api(action) {
-  fetch('/api/' + action, { method: 'POST' }).catch(console.error);
+  fetch('/api/' + action, { method: 'POST' })
+    .then(() => { setTimeout(updateStatus, 300); })
+    .catch(console.error);
 }
 
 function togglePlay() {
@@ -245,8 +247,10 @@ function formatTime(s) {
   return m + ':' + String(sec).padStart(2,'0');
 }
 
+let statusFailCount = 0;
 function updateStatus() {
   fetch('/api/status').then(r => r.json()).then(data => {
+    statusFailCount = 0;
     playing = data.playing;
     document.getElementById('play-btn').innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
     const pos = data.playlist_position || '-';
@@ -255,7 +259,12 @@ function updateStatus() {
       (playing ? 'Playing' : 'Paused') + ' ' + pos + '/' + total +
       ' \u2022 ' + formatTime(data.position) + ' / ' + formatTime(data.duration);
   }).catch(() => {
-    document.getElementById('video-info').textContent = 'Disconnected';
+    // Don't overwrite last known state on transient failures (e.g., mpv busy loading).
+    // Only show "Disconnected" after several consecutive failures.
+    statusFailCount = (statusFailCount || 0) + 1;
+    if (statusFailCount > 5) {
+      document.getElementById('video-info').textContent = 'Disconnected';
+    }
   });
 }
 
