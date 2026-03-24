@@ -122,7 +122,8 @@ class Selector:
             return list(self._entries)
 
     def get_shuffle(self) -> bool:
-        return self._shuffle
+        with self._lock:
+            return self._shuffle
 
     def set_shuffle(self, enabled: bool) -> None:
         with self._lock:

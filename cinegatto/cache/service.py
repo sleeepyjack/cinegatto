@@ -510,7 +510,6 @@ class CacheService:
             )
             if result.returncode != 0:
                 return None
-            import json
             info = json.loads(result.stdout)
             # filesize is exact (if available), filesize_approx is estimate
             size = info.get("filesize") or info.get("filesize_approx")

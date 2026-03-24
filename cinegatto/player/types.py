@@ -1,4 +1,4 @@
-from typing import Protocol, Optional, Any
+from typing import Protocol, Optional
 
 
 class PlayerState:

@@ -58,18 +58,14 @@ def _find_mono_font(size):
 
 
 def _rgba_to_bgra_file(img):
-    """Convert an RGBA Pillow image to a raw BGRA temp file for mpv."""
+    """Convert an RGBA Pillow image to a raw BGRA temp file for mpv.
+
+    Uses Pillow's C-level channel operations instead of a Python pixel loop.
+    """
+    r, g, b, a = img.split()
+    bgra = Image.merge("RGBA", (b, g, r, a))
+    raw = bgra.tobytes("raw", "RGBA")
     width, height = img.size
-    pixels = img.load()
-    raw = bytearray(width * height * 4)
-    for y in range(height):
-        for x in range(width):
-            r, g, b, a = pixels[x, y]
-            off = (y * width + x) * 4
-            raw[off] = b
-            raw[off + 1] = g
-            raw[off + 2] = r
-            raw[off + 3] = a
     tmp = tempfile.NamedTemporaryFile(suffix=".bgra", delete=False)
     tmp.write(raw)
     tmp.close()
