@@ -147,11 +147,11 @@ class MpvPlayer:
         self._ipc.command("seek", position, "absolute")
 
     def show_video(self, visible: bool) -> None:
-        """Show or hide the video track. When hidden, mpv shows a black screen.
-        Overlays remain visible since they're independent of the video track."""
+        """Show or black out the video. Overlays remain visible."""
         try:
-            self._ipc.set_property("vid", 1 if visible else "no")
-            logger.debug("Video track %s", "shown" if visible else "hidden")
+            self._ipc.set_property("brightness", 0 if visible else -100)
+            self._ipc.set_property("contrast", 0 if visible else -100)
+            logger.debug("Video %s", "visible" if visible else "blacked out")
         except Exception:
             pass
 
