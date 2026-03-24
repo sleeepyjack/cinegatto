@@ -10,9 +10,9 @@ class PiDisplay:
     """Controls HDMI display power on Raspberry Pi via vcgencmd."""
 
     def power_on(self) -> None:
-        logger.info("Display power ON")
+        logger.debug("Display power ON")
         subprocess.run(["vcgencmd", "display_power", "1"], check=True)
 
     def power_off(self) -> None:
-        logger.info("Display power OFF")
+        logger.debug("Display power OFF")
         subprocess.run(["vcgencmd", "display_power", "0"], check=True)

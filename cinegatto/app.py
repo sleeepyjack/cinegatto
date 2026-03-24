@@ -124,7 +124,7 @@ def run(config_path: str = None) -> None:
     display = _create_display()
 
     # Fetch playlist (with retry)
-    logger.info("Fetching playlist...")
+    logger.debug("Fetching playlist...")
     try:
         entries = _fetch_with_retry(playlist_url)
     except Exception:
@@ -159,7 +159,7 @@ def run(config_path: str = None) -> None:
         web_url = f"http://{_get_lan_ip()}:{config['api_port']}"
         apply_overlays(player._ipc, web_url)
     except Exception:
-        logger.warning("Could not apply overlays")
+        logger.exception("Could not apply overlays")
 
     # Cache setup
     cache_service = None

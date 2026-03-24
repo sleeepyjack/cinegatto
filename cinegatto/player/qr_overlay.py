@@ -221,7 +221,7 @@ def apply_overlays(ipc, url):
             ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
             logger.debug("Overlays positioned", extra={"osd_w": osd_w, "qr_x": qr_x})
         except Exception:
-            logger.warning("Could not apply overlays")
+            logger.exception("Could not apply overlays")
 
     # Reposition when a video starts. The callback runs on the IPC reader thread,
     # but _position_overlays makes IPC calls (get_property, overlay-add).

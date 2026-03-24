@@ -65,6 +65,7 @@ class MpvPlayer:
         self._spawn_mpv()
         self._connect_ipc()
         self._register_event_handlers()
+        logger.debug("Event handlers registered")
         self._running = True
         self._start_watchdog()
         logger.info("Player started", extra={"socket": self._socket_path})
@@ -172,10 +173,10 @@ class MpvPlayer:
         """
         if start_percent is not None:
             options = {"start": f"{start_percent:.1f}%"}
-            logger.info("Loading video", extra={"url": url, "start": f"{start_percent:.1f}%"})
+            logger.debug("Loading video", extra={"url": url, "start": f"{start_percent:.1f}%"})
             self._ipc.command("loadfile", url, "replace", -1, options)
         else:
-            logger.info("Loading video", extra={"url": url})
+            logger.debug("Loading video", extra={"url": url})
             self._ipc.command("loadfile", url)
 
     def play(self) -> None:

@@ -24,35 +24,35 @@ def init_api(controller, ring_handler=None, cache_service=None, playlist_url=Non
 
 @api.route("/play", methods=["POST"])
 def play():
-    logger.info("API: play")
+    logger.debug("API: play")
     _controller.play()
     return jsonify({"status": "ok"})
 
 
 @api.route("/pause", methods=["POST"])
 def pause():
-    logger.info("API: pause")
+    logger.debug("API: pause")
     _controller.pause()
     return jsonify({"status": "ok"})
 
 
 @api.route("/next", methods=["POST"])
 def next_video():
-    logger.info("API: next")
+    logger.debug("API: next")
     _controller.next_video()
     return jsonify({"status": "ok"})
 
 
 @api.route("/previous", methods=["POST"])
 def previous_video():
-    logger.info("API: previous")
+    logger.debug("API: previous")
     _controller.previous_video()
     return jsonify({"status": "ok"})
 
 
 @api.route("/random_seek", methods=["POST"])
 def random_seek():
-    logger.info("API: random_seek")
+    logger.debug("API: random_seek")
     _controller.random_seek()
     return jsonify({"status": "ok"})
 

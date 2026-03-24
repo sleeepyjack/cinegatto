@@ -160,6 +160,7 @@ class CacheService:
         and execution).
         """
         if self.contains(video_id):
+            logger.debug("Already cached, skipping warm", extra={"video_id": video_id})
             return
         with self._queued_lock:
             if video_id in self._queued_ids:
@@ -258,8 +259,8 @@ class CacheService:
             # Retry failed downloads with exponential backoff (max 3 retries)
             if not success and self._running and retry_count < _MAX_RETRIES:
                 delay = _RETRY_DELAYS[retry_count]
-                logger.info("Will retry download in %ds",
-                            delay, extra={"video_id": video_id, "retry": retry_count + 1})
+                logger.debug("Will retry download in %ds",
+                             delay, extra={"video_id": video_id, "retry": retry_count + 1})
                 t = threading.Timer(delay, self._enqueue_retry,
                                     args=(video_id, url, retry_count + 1))
                 t.daemon = True
@@ -273,7 +274,7 @@ class CacheService:
         if not self._running:
             return False
         if self.contains(video_id):
-            logger.debug("Already cached, skipping", extra={"video_id": video_id})
+            logger.debug("Already cached, skipping download", extra={"video_id": video_id})
             return True  # not a failure
 
         part_path = os.path.join(self._cache_path, f"{video_id}.part")

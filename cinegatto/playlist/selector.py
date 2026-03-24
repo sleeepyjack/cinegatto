@@ -133,8 +133,9 @@ class Selector:
     def update_entries(self, entries: list[dict]) -> None:
         """Update the playlist entries (e.g., after a refresh)."""
         with self._lock:
+            old_count = len(self._entries)
             self._entries = list(entries)
             # Clamp index in case playlist shrank
             if self._index >= len(self._entries):
                 self._index = 0
-            logger.info("Playlist updated", extra={"count": len(entries)})
+            logger.info("Playlist updated", extra={"old_count": old_count, "new_count": len(entries)})

@@ -32,6 +32,7 @@ def fetch_playlist(playlist_url: str) -> list[dict]:
     entries = [e for e in (info.get("entries") or []) if e is not None]
 
     if not entries:
+        logger.warning("Playlist empty", extra={"url": playlist_url})
         raise ValueError(f"Playlist is empty or could not be fetched: {playlist_url}")
 
     logger.info("Playlist fetched", extra={"count": len(entries), "url": playlist_url})
