@@ -45,12 +45,12 @@ def _create_display():
     return NoopDisplay()
 
 
-def _fetch_with_retry(playlist_url: str, cookies_from_browser: str = "",
-                      max_attempts: int = 5, base_delay: float = 5.0) -> list[dict]:
+def _fetch_with_retry(playlist_url: str, max_attempts: int = 5,
+                      base_delay: float = 5.0) -> list[dict]:
     """Fetch playlist with exponential backoff retry."""
     for attempt in range(1, max_attempts + 1):
         try:
-            return fetch_playlist(playlist_url, cookies_from_browser=cookies_from_browser)
+            return fetch_playlist(playlist_url)
         except Exception as e:
             delay = base_delay * (2 ** (attempt - 1))
             logger.warning(
@@ -87,20 +87,18 @@ def run(config_path: str = None) -> None:
         logger.error("No playlist_url configured. Set it in your config file.")
         sys.exit(1)
 
-    cookies_from_browser = config.get("cookies_from_browser", "")
-
     # Build display
     display = _create_display()
 
     # Fetch playlist (with retry)
     logger.info("Fetching playlist...")
     try:
-        entries = _fetch_with_retry(playlist_url, cookies_from_browser=cookies_from_browser)
+        entries = _fetch_with_retry(playlist_url)
     except Exception:
         logger.error("Could not fetch playlist after retries. Entering standby.")
         display.power_off()
         # Keep retrying in background
-        entries = _standby_until_playlist(playlist_url, display, cookies_from_browser)
+        entries = _standby_until_playlist(playlist_url, display)
 
     # Build components — use a mutable ref so player can call controller
     controller_ref = [None]
@@ -110,8 +108,6 @@ def run(config_path: str = None) -> None:
             controller_ref[0].on_video_end()
 
     mpv_args = ["--no-audio"] if not config["audio"] else []
-    if cookies_from_browser:
-        mpv_args.append(f"--ytdl-raw-options=cookies-from-browser={cookies_from_browser}")
     mpv_args.extend(config.get("mpv_extra_args", []))
 
     player = MpvPlayer(
@@ -137,10 +133,7 @@ def run(config_path: str = None) -> None:
             cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
         cache_path = os.path.expanduser(cache_path)
         max_bytes = int(config["cache_max_size_gb"] * 1024**3)
-        cache_service = CacheService(
-            cache_path, max_bytes, config["cache_format"],
-            cookies_from_browser=cookies_from_browser,
-        )
+        cache_service = CacheService(cache_path, max_bytes, config["cache_format"])
         cache_service.start()
 
     selector = Selector(entries, shuffle=config["shuffle"])
@@ -178,7 +171,7 @@ def run(config_path: str = None) -> None:
     # Start periodic playlist refresh
     refresh_thread = threading.Thread(
         target=_playlist_refresh_loop,
-        args=(playlist_url, selector, cache_service, cookies_from_browser),
+        args=(playlist_url, selector, cache_service),
         daemon=True,
         name="playlist-refresh",
     )
@@ -193,13 +186,12 @@ def run(config_path: str = None) -> None:
     app.run(host="0.0.0.0", port=config["api_port"], threaded=True, use_reloader=False)
 
 
-def _standby_until_playlist(playlist_url: str, display,
-                            cookies_from_browser: str = "") -> list[dict]:
+def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
     """Keep retrying playlist fetch until successful."""
     while True:
         time.sleep(60)
         try:
-            entries = fetch_playlist(playlist_url, cookies_from_browser=cookies_from_browser)
+            entries = fetch_playlist(playlist_url)
             logger.info("Playlist fetched after standby retry")
             display.power_on()
             return entries
@@ -208,13 +200,13 @@ def _standby_until_playlist(playlist_url: str, display,
 
 
 def _playlist_refresh_loop(playlist_url: str, selector: Selector,
-                           cache_service=None, cookies_from_browser: str = "",
+                           cache_service=None,
                            interval: float = 1800) -> None:
     """Periodically re-fetch playlist metadata (every 30 min by default)."""
     while True:
         time.sleep(interval)
         try:
-            entries = fetch_playlist(playlist_url, cookies_from_browser=cookies_from_browser)
+            entries = fetch_playlist(playlist_url)
             selector.update_entries(entries)
             if cache_service:
                 playlist_ids = {e["id"] for e in entries}

@@ -92,7 +92,7 @@ class TestCacheIntegration:
         display = NoopDisplay()
 
         cache = CacheService(str(tmp_path / "cache"), 1024 * 1024 * 100,
-                             format_str="best", cookies_from_browser="")
+                             format_str="best")
         cached_file = os.path.join(str(tmp_path / "cache"), "vid1.mp4")
         with open(cached_file, "wb") as f:
             f.write(b"\x00" * 100)

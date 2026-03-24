@@ -35,12 +35,10 @@ _DOWNLOAD_GAP = 2  # seconds between downloads to avoid hammering YouTube
 class CacheService:
     """Unified video cache with background downloads."""
 
-    def __init__(self, cache_path: str, max_size_bytes: int, format_str: str,
-                 cookies_from_browser: str = ""):
+    def __init__(self, cache_path: str, max_size_bytes: int, format_str: str):
         self._cache_path = cache_path
         self._max_size = max_size_bytes
         self._format = format_str
-        self._cookies = cookies_from_browser
 
         self._lock = threading.Lock()
         self._index = {"version": _INDEX_VERSION, "entries": {}}
@@ -198,8 +196,6 @@ class CacheService:
             "--merge-output-format", "mp4",
             "--no-warnings", "--quiet",
         ]
-        if self._cookies:
-            cmd.extend(["--cookies-from-browser", self._cookies])
         cmd.append(url)
 
         try:
@@ -214,8 +210,13 @@ class CacheService:
                 self._current_proc = None
 
             if returncode != 0:
+                stderr = ""
+                try:
+                    stderr = self._current_proc.stderr.read().decode(errors="replace")[:500]
+                except Exception:
+                    pass
                 logger.warning("yt-dlp exited with code %d", returncode,
-                               extra={"video_id": video_id})
+                               extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
                 return
         except Exception:

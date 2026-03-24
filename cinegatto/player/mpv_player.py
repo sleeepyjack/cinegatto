@@ -244,6 +244,7 @@ class MpvPlayer:
         try:
             self._spawn_mpv()
             self._connect_ipc()
+            self._register_event_handlers()
             self._start_watchdog()
             logger.info("mpv restarted successfully")
         except Exception:

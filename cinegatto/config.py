@@ -20,7 +20,6 @@ DEFAULTS = {
     "cache_path": "",
     "cache_max_size_gb": 16,
     "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
-    "cookies_from_browser": "",
 }
 
 VALIDATORS = {
@@ -38,7 +37,6 @@ VALIDATORS = {
     "cache_path": lambda v: isinstance(v, str),
     "cache_max_size_gb": lambda v: isinstance(v, (int, float)),
     "cache_format": lambda v: isinstance(v, str),
-    "cookies_from_browser": lambda v: isinstance(v, str),
 }
 
 

@@ -10,8 +10,7 @@ from cinegatto.cache.service import CacheService
 class TestCacheService:
     def _make_service(self, tmp_path, max_size=1024 * 1024 * 100):
         """Create a CacheService with 100 MB budget, no downloads."""
-        svc = CacheService(str(tmp_path / "cache"), max_size,
-                           format_str="best", cookies_from_browser="")
+        svc = CacheService(str(tmp_path / "cache"), max_size, format_str="best")
         return svc
 
     def _create_fake_video(self, cache_dir, video_id, size=1000):
@@ -145,7 +144,7 @@ class TestCacheService:
             }
             svc._save_index()
         svc2 = CacheService(str(tmp_path / "cache"), 1024 * 1024 * 100,
-                            format_str="best", cookies_from_browser="")
+                            format_str="best")
         assert svc2.contains("vid1")
 
     def test_reconcile_removes_orphan_parts(self, tmp_path):
@@ -155,7 +154,7 @@ class TestCacheService:
         with open(orphan, "w") as f:
             f.write("junk")
         svc = CacheService(cache_dir, 1024 * 1024 * 100,
-                           format_str="best", cookies_from_browser="")
+                           format_str="best")
         assert not os.path.exists(orphan)
 
     def test_reconcile_indexes_untracked_mp4(self, tmp_path):
@@ -165,7 +164,7 @@ class TestCacheService:
         with open(path, "wb") as f:
             f.write(b"\x00" * 200)
         svc = CacheService(cache_dir, 1024 * 1024 * 100,
-                           format_str="best", cookies_from_browser="")
+                           format_str="best")
         assert svc.contains("mystery")
 
     def test_get_stats(self, tmp_path):
