@@ -252,10 +252,8 @@ function formatTime(s) {
   return m + ':' + String(sec).padStart(2,'0');
 }
 
-let statusFailCount = 0;
 function updateStatus() {
-  fetch('/api/status', { signal: AbortSignal.timeout(3000) }).then(r => r.json()).then(data => {
-    statusFailCount = 0;
+  fetch('/api/status').then(r => r.json()).then(data => {
     playing = data.playing;
     document.getElementById('play-btn').innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
     const pos = data.playlist_position || '-';
@@ -271,12 +269,7 @@ function updateStatus() {
         ' \u2022 ' + formatTime(data.position) + ' / ' + formatTime(data.duration);
     }
   }).catch(() => {
-    // Don't overwrite last known state on transient failures (e.g., mpv busy loading).
-    // Only show "Disconnected" after several consecutive failures.
-    statusFailCount = (statusFailCount || 0) + 1;
-    if (statusFailCount > 3) {
-      document.getElementById('video-info').textContent = 'Disconnected';
-    }
+    document.getElementById('video-info').textContent = 'Disconnected';
   });
 }
 
