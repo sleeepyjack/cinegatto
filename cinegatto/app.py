@@ -161,17 +161,21 @@ def run(config_path: str = None) -> None:
     except Exception:
         logger.exception("Could not apply overlays")
 
-    # Cache setup
+    # Cache setup — gracefully degrade to streaming-only if cache dir is unavailable
     cache_service = None
     if config["cache_enabled"]:
-        from cinegatto.cache.service import CacheService
-        cache_path = config["cache_path"]
-        if not cache_path:
-            cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
-        cache_path = os.path.expanduser(cache_path)
-        max_bytes = int(config["cache_max_size_gb"] * 1024**3)
-        cache_service = CacheService(cache_path, max_bytes, config["cache_format"])
-        cache_service.start()
+        try:
+            from cinegatto.cache.service import CacheService
+            cache_path = config["cache_path"]
+            if not cache_path:
+                cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
+            cache_path = os.path.expanduser(cache_path)
+            max_bytes = int(config["cache_max_size_gb"] * 1024**3)
+            cache_service = CacheService(cache_path, max_bytes, config["cache_format"])
+            cache_service.start()
+        except Exception:
+            logger.exception("Cache unavailable, continuing without caching")
+            cache_service = None
 
     selector = Selector(entries, shuffle=config["shuffle"])
     controller = PlaybackController(
