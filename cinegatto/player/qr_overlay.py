@@ -169,32 +169,42 @@ def _generate_art_overlay():
     return img
 
 
-def apply_overlays(ipc, url, screen_width=1920):
+def apply_overlays(ipc, url):
     """Apply ASCII art (left) and QR code (right) overlays.
 
-    screen_width should match the display resolution (1920 for 1080p).
-    On Pi this is always correct. On Mac during dev it may be approximate.
+    Images are generated once. Position is recalculated each time a video
+    starts playing (playback-restart event), when osd-width is accurate.
     """
-    osd_w = screen_width
+    import threading
 
+    # Generate images once (expensive)
     art_img = _generate_art_overlay()
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
 
     qr_img = _generate_qr_with_url(url)
     qr_path, qr_w, qr_h = _rgba_to_bgra_file(qr_img)
 
-    art_x, art_y = 20, 20
-    qr_x = max(osd_w - qr_w - 20, 0)
-    qr_y = 20
+    def _position_overlays():
+        try:
+            osd_w = ipc.get_property("osd-width") or 1920
+        except Exception:
+            osd_w = 1920
 
-    try:
-        ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
-        logger.info("ASCII art overlay applied", extra={"x": art_x, "y": art_y})
-    except Exception:
-        logger.warning("Could not apply ASCII art overlay")
+        art_x, art_y = 20, 20
+        qr_x = max(osd_w - qr_w - 20, 0)
+        qr_y = 20
 
-    try:
-        ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
-        logger.info("QR overlay applied", extra={"x": qr_x, "y": qr_y, "osd_w": osd_w})
-    except Exception:
-        logger.warning("Could not apply QR overlay")
+        try:
+            ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
+            ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
+            logger.debug("Overlays positioned", extra={"osd_w": osd_w, "qr_x": qr_x})
+        except Exception:
+            logger.warning("Could not apply overlays")
+
+    # Reposition when a video starts (callback runs on reader thread — defer IPC calls)
+    def _on_playback_restart(_event):
+        t = threading.Thread(target=_position_overlays, daemon=True)
+        t.start()
+
+    ipc.on_event("playback-restart", _on_playback_restart)
+    logger.info("Overlay images generated, will position on playback start")
