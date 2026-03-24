@@ -182,15 +182,28 @@ class CacheService:
         part_path = os.path.join(self._cache_path, f"{video_id}.part")
         final_path = os.path.join(self._cache_path, f"{video_id}.mp4")
 
-        logger.info("Downloading", extra={"video_id": video_id})
-
         yt_dlp_bin = shutil.which("yt-dlp")
         venv_bin = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
         if os.path.isfile(venv_bin):
             yt_dlp_bin = venv_bin
+        yt_dlp_cmd = yt_dlp_bin or "yt-dlp"
+
+        # Pre-check: estimate file size before downloading
+        estimated = self._estimate_size(yt_dlp_cmd, url)
+        if estimated and estimated > self._max_size:
+            logger.warning("Video too large for cache, skipping download",
+                           extra={"video_id": video_id,
+                                  "estimated_mb": estimated // (1024 * 1024),
+                                  "max_mb": self._max_size // (1024 * 1024)})
+            return
+
+        logger.info("Downloading", extra={
+            "video_id": video_id,
+            "estimated_mb": estimated // (1024 * 1024) if estimated else "unknown",
+        })
 
         cmd = [
-            yt_dlp_bin or "yt-dlp",
+            yt_dlp_cmd,
             "-f", self._format,
             "-o", part_path,
             "--merge-output-format", "mp4",
@@ -378,3 +391,29 @@ class CacheService:
                     os.unlink(os.path.join(self._cache_path, name))
                 except FileNotFoundError:
                     pass
+
+    def _estimate_size(self, yt_dlp_cmd: str, url: str) -> Optional[int]:
+        """Estimate download size via yt-dlp --dump-json. Returns bytes or None."""
+        try:
+            result = subprocess.run(
+                [yt_dlp_cmd, "-f", self._format, "--dump-json", "--no-download", url],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                return None
+            import json
+            info = json.loads(result.stdout)
+            # filesize is exact (if available), filesize_approx is estimate
+            size = info.get("filesize") or info.get("filesize_approx")
+            if size:
+                return int(size)
+            # Fallback: sum requested formats
+            formats = info.get("requested_formats", [])
+            if formats:
+                total = sum(f.get("filesize") or f.get("filesize_approx") or 0 for f in formats)
+                if total > 0:
+                    return total
+            return None
+        except Exception:
+            logger.debug("Could not estimate download size")
+            return None
