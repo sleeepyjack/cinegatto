@@ -30,7 +30,10 @@ class Selector:
             if not self._entries:
                 raise ValueError("Cannot pick from empty playlist")
             if self._shuffle:
-                video = random.choice(self._entries)
+                candidates = self._entries
+                if self._current and len(self._entries) > 1:
+                    candidates = [e for e in self._entries if e["id"] != self._current["id"]]
+                video = random.choice(candidates)
             else:
                 video = self._entries[self._index]
                 self._index = (self._index + 1) % len(self._entries)

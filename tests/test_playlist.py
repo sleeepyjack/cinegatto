@@ -77,6 +77,15 @@ class TestSelector:
         for _ in range(10):
             assert selector.pick() in entries
 
+    def test_shuffle_never_repeats_back_to_back(self):
+        entries = self._sample_entries(5)
+        selector = Selector(entries, shuffle=True)
+        prev = selector.pick()
+        for _ in range(50):
+            current = selector.pick()
+            assert current["id"] != prev["id"]
+            prev = current
+
     def test_peek_next_sequential(self):
         entries = self._sample_entries(5)
         selector = Selector(entries, shuffle=False)
