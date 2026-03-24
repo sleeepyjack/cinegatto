@@ -143,7 +143,7 @@ class PlaybackController:
         """Load a video — from cache if available, else stream from YouTube."""
         start_percent = None
         if self._random_start:
-            start_percent = random.uniform(0, 90.0)
+            start_percent = random.uniform(0, 80.0)
             logger.info("Random start", extra={"start_percent": round(start_percent, 1)})
 
         cached_path = self._cache.get(video["id"]) if self._cache else None
@@ -166,7 +166,7 @@ class PlaybackController:
         try:
             state = self._player.get_state()
             if state.duration > 0:
-                pos = random.uniform(0, state.duration * 0.9)
+                pos = random.uniform(0, state.duration * 0.8)
                 logger.info("Random seek", extra={"position": round(pos, 1), "duration": round(state.duration, 1)})
                 self._player.seek(pos)
             else:
