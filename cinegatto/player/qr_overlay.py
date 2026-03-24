@@ -169,29 +169,45 @@ def _generate_art_overlay():
     return img
 
 
-def apply_overlays(ipc, url, screen_width=1920, screen_height=1080):
-    """Apply ASCII art (left) and QR code with URL (right) overlays."""
-    # Left: cat ASCII art + title + github url
+def apply_overlays(ipc, url):
+    """Apply ASCII art (left) and QR code (right) overlays.
+
+    Generates overlay images once, then positions them based on mpv's
+    current window size. Registers a video-reconfig callback to
+    reposition when the window resizes.
+    """
+    # Generate images once (expensive)
     art_img = _generate_art_overlay()
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
 
-    # Right: QR code + URL
     qr_img = _generate_qr_with_url(url)
     qr_path, qr_w, qr_h = _rgba_to_bgra_file(qr_img)
 
-    # Positions
-    art_x, art_y = 20, 20
-    qr_x = screen_width - qr_w - 20
-    qr_y = 20
+    def _position_overlays():
+        """Read current window size from mpv and (re)position overlays."""
+        try:
+            osd_w = ipc.get_property("osd-width") or 1920
+            osd_h = ipc.get_property("osd-height") or 1080
+        except Exception:
+            osd_w, osd_h = 1920, 1080
 
-    try:
-        ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
-        logger.info("ASCII art overlay applied", extra={"x": art_x, "y": art_y})
-    except Exception:
-        logger.warning("Could not apply ASCII art overlay")
+        art_x, art_y = 20, 20
+        qr_x = max(osd_w - qr_w - 20, 0)
+        qr_y = 20
 
-    try:
-        ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
-        logger.info("QR overlay applied", extra={"x": qr_x, "y": qr_y, "url": url})
-    except Exception:
-        logger.warning("Could not apply QR overlay")
+        try:
+            ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
+        except Exception:
+            pass
+        try:
+            ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
+        except Exception:
+            pass
+        logger.debug("Overlays positioned", extra={"osd": f"{osd_w}x{osd_h}", "qr_x": qr_x})
+
+    # Position now
+    _position_overlays()
+
+    # Reposition on window resize
+    ipc.on_event("video-reconfig", lambda _: _position_overlays())
+    logger.info("Overlays applied with auto-reposition")
