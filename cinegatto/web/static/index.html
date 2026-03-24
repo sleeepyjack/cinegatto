@@ -207,7 +207,12 @@
 let playing = false;
 let settings = { shuffle: true, random_start: true };
 
+let loadingHint = false;
 function api(action) {
+  if (action === 'next' || action === 'previous') {
+    loadingHint = true;
+    document.getElementById('video-info').textContent = 'Loading...';
+  }
   fetch('/api/' + action, { method: 'POST' })
     .then(() => { setTimeout(updateStatus, 300); })
     .catch(console.error);
@@ -255,9 +260,16 @@ function updateStatus() {
     document.getElementById('play-btn').innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
     const pos = data.playlist_position || '-';
     const total = data.playlist_size || '-';
-    document.getElementById('video-info').textContent =
-      (playing ? 'Playing' : 'Paused') + ' ' + pos + '/' + total +
-      ' \u2022 ' + formatTime(data.position) + ' / ' + formatTime(data.duration);
+    // Detect "loading" state: mpv returns default empty values while ytdl_hook resolves
+    const isLoading = !data.playing && data.position === 0 && data.duration === 0 && !data.video_url;
+    if (isLoading && loadingHint) {
+      document.getElementById('video-info').textContent = 'Loading...';
+    } else {
+      loadingHint = false;
+      document.getElementById('video-info').textContent =
+        (playing ? 'Playing' : 'Paused') + ' ' + pos + '/' + total +
+        ' \u2022 ' + formatTime(data.position) + ' / ' + formatTime(data.duration);
+    }
   }).catch(() => {
     // Don't overwrite last known state on transient failures (e.g., mpv busy loading).
     // Only show "Disconnected" after several consecutive failures.
