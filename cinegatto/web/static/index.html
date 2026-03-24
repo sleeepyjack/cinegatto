@@ -159,7 +159,7 @@
   </div>
   <div class="toggle" id="sync-btn" onclick="syncCache()">
     <div class="dot" id="sync-dot"></div>
-    <div class="label">Sync cache</div>
+    <div class="label">Sync</div>
   </div>
 </div>
 
@@ -235,7 +235,7 @@ function updateSettings() {
 function syncCache() {
   const dot = document.getElementById('sync-dot');
   dot.style.background = '#f0ad4e';
-  fetch('/api/cache/sync', { method: 'POST' }).then(r => r.json()).then(data => {
+  fetch('/api/sync', { method: 'POST' }).then(r => r.json()).then(data => {
     dot.style.background = data.enqueued > 0 ? '#a0ffb0' : '#5bc0de';
     setTimeout(() => { dot.style.background = '#555'; }, 3000);
   }).catch(() => { dot.style.background = '#d9534f'; });

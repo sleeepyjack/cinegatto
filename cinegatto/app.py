@@ -149,7 +149,7 @@ def run(config_path: str = None) -> None:
     app = Flask(__name__,
                 static_folder=os.path.join(os.path.dirname(__file__), "web", "static"),
                 static_url_path="/static")
-    init_api(controller, ring_handler, cache_service=cache_service)
+    init_api(controller, ring_handler, cache_service=cache_service, playlist_url=playlist_url)
     app.register_blueprint(api)
 
     @app.route("/")

@@ -11,13 +11,15 @@ api = Blueprint("api", __name__, url_prefix="/api")
 _controller = None
 _ring_handler = None
 _cache_service = None
+_playlist_url = None
 
 
-def init_api(controller, ring_handler=None, cache_service=None):
-    global _controller, _ring_handler, _cache_service
+def init_api(controller, ring_handler=None, cache_service=None, playlist_url=None):
+    global _controller, _ring_handler, _cache_service, _playlist_url
     _controller = controller
     _ring_handler = ring_handler
     _cache_service = cache_service
+    _playlist_url = playlist_url
 
 
 @api.route("/play", methods=["POST"])
@@ -78,15 +80,40 @@ def cache():
     return jsonify(stats)
 
 
-@api.route("/cache/sync", methods=["POST"])
-def cache_sync():
-    """Enqueue all playlist videos for background download."""
-    if not _cache_service or not _controller:
-        return jsonify({"status": "error", "message": "caching not enabled"})
-    entries = _controller._selector.get_all_entries()
-    result = _cache_service.warm_all(entries)
-    result["status"] = "ok"
-    return jsonify(result)
+@api.route("/sync", methods=["POST"])
+def sync():
+    """Refresh playlist from YouTube, then enqueue uncached videos for download."""
+    from cinegatto.playlist.fetcher import fetch_playlist
+
+    if not _controller:
+        return jsonify({"status": "error", "message": "not ready"})
+
+    # Refresh playlist
+    playlist_refreshed = False
+    if _playlist_url:
+        try:
+            entries = fetch_playlist(_playlist_url)
+            _controller._selector.update_entries(entries)
+            if _cache_service:
+                playlist_ids = {e["id"] for e in entries}
+                _cache_service.cleanup(playlist_ids)
+            playlist_refreshed = True
+            logger.info("Playlist synced via API", extra={"count": len(entries)})
+        except Exception as e:
+            logger.warning("Playlist sync failed: %s", e)
+
+    # Cache sync
+    cache_result = {}
+    if _cache_service:
+        all_entries = _controller._selector.get_all_entries()
+        cache_result = _cache_service.warm_all(all_entries)
+
+    return jsonify({
+        "status": "ok",
+        "playlist_refreshed": playlist_refreshed,
+        "playlist_count": len(_controller._selector.get_all_entries()),
+        **cache_result,
+    })
 
 
 @api.route("/logs", methods=["GET"])
