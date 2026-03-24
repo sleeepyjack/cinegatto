@@ -22,11 +22,7 @@ LAN_IP=$(python3 -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_D
 
 echo ""
 echo "  cinegatto - cinema for cats"
-echo ""
-echo "  Web UI:  http://localhost:${PORT}"
-echo "  Phone:   http://${LAN_IP}:${PORT}"
-echo ""
-echo "  Press Ctrl+C to stop"
+echo "  http://${LAN_IP}:${PORT}"
 echo ""
 
 exec ./venv/bin/python -m cinegatto "$@"
