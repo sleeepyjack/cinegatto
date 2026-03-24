@@ -28,7 +28,7 @@ class MpvPlayer:
         self._ipc: Optional[MpvIpc] = None
         self._running = False
         self._watchdog_thread: Optional[threading.Thread] = None
-        self._last_seek_time: float = 0
+        self._seeking = False
 
     def start(self) -> None:
         """Spawn mpv process and connect IPC."""
@@ -48,13 +48,17 @@ class MpvPlayer:
         """
         if self._on_video_end:
             self._consecutive_errors = 0
-            self._last_seek_time = 0
+
+            def handle_playback_restart(_event):
+                self._seeking = False
+
+            self._ipc.on_event("playback-restart", handle_playback_restart)
 
             def handle_end_file(event):
                 reason = event.get("reason", "")
                 error = event.get("file_error", "")
-                # Ignore end-file events shortly after a seek (rapid seek can cause spurious events)
-                if time.time() - self._last_seek_time < 2.0:
+                # Ignore end-file events while a seek is in progress
+                if self._seeking:
                     logger.debug("Ignoring end-file during seek", extra={"reason": reason})
                     return
                 if reason == "eof":
@@ -150,7 +154,7 @@ class MpvPlayer:
     def seek(self, position: float) -> None:
         """Seek to an absolute position in seconds."""
         logger.debug("Seeking", extra={"position": position})
-        self._last_seek_time = time.time()
+        self._seeking = True
         self._ipc.command("seek", position, "absolute")
 
     def show_video(self, visible: bool) -> None:
