@@ -7,3 +7,4 @@ pytest-of-*/
 .cinegatto.log
 .cache/
 .project/
+.claude/
