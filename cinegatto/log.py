@@ -32,7 +32,8 @@ class RingBufferHandler(logging.Handler):
         if level is not None:
             threshold = getattr(logging, level.upper(), logging.DEBUG)
             entries = [e for e in entries if logging.getLevelName(e.get("level", "DEBUG")) >= threshold]
-        return entries[:limit]
+        # Return the most recent entries (tail of the buffer)
+        return entries[-limit:]
 
 
 def setup_logging(level="debug", ring_size=500, log_file=None):
