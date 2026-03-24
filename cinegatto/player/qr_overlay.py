@@ -169,17 +169,13 @@ def _generate_art_overlay():
     return img
 
 
-def apply_overlays(ipc, url):
+def apply_overlays(ipc, url, screen_width=1920):
     """Apply ASCII art (left) and QR code (right) overlays.
 
-    Queries mpv's current window size once for correct positioning.
-    On Pi (fullscreen), this is the display resolution.
+    screen_width should match the display resolution (1920 for 1080p).
+    On Pi this is always correct. On Mac during dev it may be approximate.
     """
-    # Query actual window size
-    try:
-        osd_w = ipc.get_property("osd-width") or 1920
-    except Exception:
-        osd_w = 1920
+    osd_w = screen_width
 
     art_img = _generate_art_overlay()
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
