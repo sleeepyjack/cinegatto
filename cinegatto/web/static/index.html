@@ -16,10 +16,35 @@
     align-items: center;
     padding: 20px;
   }
-  h1 {
-    font-size: 1.5rem;
-    margin-bottom: 8px;
+  .header {
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .header pre {
+    font-family: monospace;
+    font-size: 1.2rem;
+    line-height: 1.3;
     color: #fff;
+    margin: 0;
+  }
+  .header .title {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #fff;
+    margin: 4px 0;
+  }
+  .header a {
+    color: #888;
+    font-size: 0.8rem;
+    text-decoration: none;
+  }
+  .header a:hover {
+    color: #a0c4ff;
+    text-decoration: underline;
+  }
+  .playlist-link {
+    display: inline-block;
+    margin-top: 4px;
   }
   .status {
     text-align: center;
@@ -135,7 +160,15 @@
 </head>
 <body>
 
-<h1>cinegatto</h1>
+<div class="header">
+  <pre>  /\_/\
+ ( o.o )
+  &gt; ^ &lt;</pre>
+  <div class="title">cinegatto</div>
+  <a href="https://github.com/sleeepyjack/cinegatto" target="_blank">github.com/sleeepyjack/cinegatto</a>
+  <br>
+  <a class="playlist-link" id="playlist-link" href="#" target="_blank"></a>
+</div>
 
 <div class="status">
   <div class="title" id="video-title">--</div>
@@ -230,6 +263,11 @@ function updateSettings() {
   fetch('/api/settings').then(r => r.json()).then(data => {
     settings = data;
     renderSettings();
+    if (data.playlist_url) {
+      const el = document.getElementById('playlist-link');
+      el.href = data.playlist_url;
+      el.textContent = 'YouTube Playlist';
+    }
   }).catch(() => {});
 }
 

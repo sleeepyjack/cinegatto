@@ -64,7 +64,10 @@ def status():
 
 @api.route("/settings", methods=["GET"])
 def get_settings():
-    return jsonify(_controller.get_settings())
+    settings = _controller.get_settings()
+    if _playlist_url:
+        settings["playlist_url"] = _playlist_url
+    return jsonify(settings)
 
 
 @api.route("/settings", methods=["POST"])
