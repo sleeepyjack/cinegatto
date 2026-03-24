@@ -172,48 +172,33 @@ def _generate_art_overlay():
 def apply_overlays(ipc, url):
     """Apply ASCII art (left) and QR code (right) overlays.
 
-    Generates overlay images once, then positions them based on mpv's
-    current window size. Registers a video-reconfig callback to
-    reposition when the window resizes.
+    Queries mpv's current window size once for correct positioning.
+    On Pi (fullscreen), this is the display resolution.
     """
-    # Generate images once (expensive)
+    # Query actual window size
+    try:
+        osd_w = ipc.get_property("osd-width") or 1920
+    except Exception:
+        osd_w = 1920
+
     art_img = _generate_art_overlay()
     art_path, art_w, art_h = _rgba_to_bgra_file(art_img)
 
     qr_img = _generate_qr_with_url(url)
     qr_path, qr_w, qr_h = _rgba_to_bgra_file(qr_img)
 
-    def _position_overlays():
-        """Read current window size from mpv and (re)position overlays."""
-        try:
-            osd_w = ipc.get_property("osd-width") or 1920
-            osd_h = ipc.get_property("osd-height") or 1080
-        except Exception:
-            osd_w, osd_h = 1920, 1080
+    art_x, art_y = 20, 20
+    qr_x = max(osd_w - qr_w - 20, 0)
+    qr_y = 20
 
-        art_x, art_y = 20, 20
-        qr_x = max(osd_w - qr_w - 20, 0)
-        qr_y = 20
+    try:
+        ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
+        logger.info("ASCII art overlay applied", extra={"x": art_x, "y": art_y})
+    except Exception:
+        logger.warning("Could not apply ASCII art overlay")
 
-        try:
-            ipc.command("overlay-add", 0, art_x, art_y, art_path, 0, "bgra", art_w, art_h, art_w * 4)
-        except Exception:
-            pass
-        try:
-            ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
-        except Exception:
-            pass
-        logger.debug("Overlays positioned", extra={"osd": f"{osd_w}x{osd_h}", "qr_x": qr_x})
-
-    # Position now
-    _position_overlays()
-
-    # Reposition on window resize — must NOT run on reader thread (deadlock)
-    # Defer to a short-lived thread so IPC calls don't block the event loop
-    def _on_reconfig(_event):
-        import threading
-        t = threading.Thread(target=_position_overlays, daemon=True)
-        t.start()
-
-    ipc.on_event("video-reconfig", _on_reconfig)
-    logger.info("Overlays applied with auto-reposition")
+    try:
+        ipc.command("overlay-add", 1, qr_x, qr_y, qr_path, 0, "bgra", qr_w, qr_h, qr_w * 4)
+        logger.info("QR overlay applied", extra={"x": qr_x, "y": qr_y, "osd_w": osd_w})
+    except Exception:
+        logger.warning("Could not apply QR overlay")
