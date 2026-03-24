@@ -219,6 +219,13 @@ def run(config_path: str = None) -> None:
     logger.info("Auto-playing first video")
     controller.next_video()
 
+    # Warm entire playlist in background so the cache fills up ASAP.
+    # This is the primary network resilience strategy: once cached,
+    # playback works offline. Dedup in warm_all means this is safe
+    # even though _load_video also calls warm() for the current video.
+    if cache_service:
+        cache_service.warm_all(entries)
+
     # Start Flask (blocking) — this is the last call in run(); it takes over the
     # main thread. use_reloader=False is critical: the reloader forks the process,
     # which would duplicate mpv and all daemon threads.

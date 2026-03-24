@@ -305,33 +305,47 @@ class MpvPlayer:
                 break
 
     def _restart(self) -> None:
-        """Restart mpv after a crash, with bounded retries and backoff.
+        """Restart mpv after a crash, with two phases:
 
-        Each attempt fully tears down the old state (close IPC, remove socket)
-        and rebuilds from scratch (spawn, connect, register handlers, new watchdog).
-        Backoff is exponential: 2s, 4s, 8s, 16s, 30s (capped). If all 5 attempts
-        fail, the player is effectively dead — a human restart of the service is
-        needed (systemd will handle this on the Pi).
+        Phase 1 (fast): 5 attempts with exponential backoff (2s, 4s, 8s, 16s, 30s).
+        Phase 2 (slow): retry every 60s indefinitely until success or shutdown.
+
+        This ensures the player eventually recovers even from prolonged issues
+        (e.g., network outage that prevents mpv from initializing DRM).
         """
-        max_attempts = 5
-        for attempt in range(1, max_attempts + 1):
+        # Phase 1: fast retries
+        max_fast = 5
+        for attempt in range(1, max_fast + 1):
             if not self._running:
                 return
-            logger.info("Restarting mpv (attempt %d/%d)", attempt, max_attempts)
-            if self._ipc:
-                self._ipc.close()
-            self._cleanup_socket()
-            try:
-                self._spawn_mpv()
-                self._connect_ipc()
-                # Re-register event handlers on the new IPC connection.
-                # The old handlers were lost when the old IPC was closed.
-                self._register_event_handlers()
-                self._start_watchdog()
-                logger.info("mpv restarted successfully")
+            logger.info("Restarting mpv (fast %d/%d)", attempt, max_fast)
+            if self._try_restart():
                 return
-            except Exception:
-                logger.exception("Restart attempt %d failed", attempt)
-                delay = min(2 ** attempt, 30)
-                time.sleep(delay)
-        logger.error("mpv restart failed after %d attempts", max_attempts)
+            delay = min(2 ** attempt, 30)
+            time.sleep(delay)
+
+        # Phase 2: slow retries every 60s
+        logger.error("Fast restart failed after %d attempts, entering slow retry", max_fast)
+        while self._running:
+            time.sleep(60)
+            if not self._running:
+                return
+            logger.info("Restarting mpv (slow retry)")
+            if self._try_restart():
+                return
+
+    def _try_restart(self) -> bool:
+        """Single restart attempt. Returns True on success."""
+        if self._ipc:
+            self._ipc.close()
+        self._cleanup_socket()
+        try:
+            self._spawn_mpv()
+            self._connect_ipc()
+            self._register_event_handlers()
+            self._start_watchdog()
+            logger.info("mpv restarted successfully")
+            return True
+        except Exception:
+            logger.exception("Restart attempt failed")
+            return False

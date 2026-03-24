@@ -49,6 +49,8 @@ _SENTINEL = object()
 # Brief pause between downloads to be a good citizen and reduce the chance
 # of YouTube rate-limiting or CAPTCHA-gating yt-dlp requests.
 _DOWNLOAD_GAP = 2
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [300, 900, 1800]  # 5 min, 15 min, 30 min
 
 
 class CacheService:
@@ -166,6 +168,13 @@ class CacheService:
         self._download_queue.put(("download", video_id, url))
         logger.debug("Queued for caching", extra={"video_id": video_id})
 
+    def _enqueue_retry(self, video_id: str, url: str, retry_count: int) -> None:
+        """Re-enqueue a failed download after a delay (called via Timer)."""
+        if not self._running or self.contains(video_id):
+            return
+        self._download_queue.put(("download", video_id, url, retry_count))
+        logger.debug("Retry enqueued", extra={"video_id": video_id, "retry": retry_count})
+
     def warm_all(self, entries: list[dict]) -> dict:
         """Queue all uncached videos for download. Returns outcome counts."""
         enqueued = 0
@@ -228,11 +237,15 @@ class CacheService:
             if not self._running:
                 self._download_queue.task_done()
                 break
-            _, video_id, url = item
+            # Queue items: ("download", video_id, url) or ("download", video_id, url, retry_count)
+            _, video_id, url = item[0], item[1], item[2]
+            retry_count = item[3] if len(item) > 3 else 0
             with self._lock:
                 self._current_download_id = video_id
+            success = False
             try:
                 self._download(video_id, url)
+                success = True
             except Exception:
                 with self._lock:
                     self._downloads_failed += 1
@@ -243,6 +256,15 @@ class CacheService:
                 with self._queued_lock:
                     self._queued_ids.discard(video_id)
                 self._download_queue.task_done()
+            # Retry failed downloads with exponential backoff (max 3 retries)
+            if not success and self._running and retry_count < _MAX_RETRIES:
+                delay = _RETRY_DELAYS[retry_count]
+                logger.info("Will retry download in %ds",
+                            delay, extra={"video_id": video_id, "retry": retry_count + 1})
+                t = threading.Timer(delay, self._enqueue_retry,
+                                    args=(video_id, url, retry_count + 1))
+                t.daemon = True
+                t.start()
             # Brief gap between downloads
             if self._running:
                 time.sleep(_DOWNLOAD_GAP)
