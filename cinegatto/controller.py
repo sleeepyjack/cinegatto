@@ -80,7 +80,10 @@ class PlaybackController:
         }
 
     def get_status(self) -> dict:
-        return self._player.get_state().to_dict()
+        status = self._player.get_state().to_dict()
+        status["playlist_size"] = len(self._selector.get_all_entries())
+        status["playlist_position"] = self._selector.get_current_index()
+        return status
 
     # --- Worker ---
 

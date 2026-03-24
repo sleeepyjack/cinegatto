@@ -78,6 +78,16 @@ class Selector:
                     result.append(self._entries[idx])
                 return result
 
+    def get_current_index(self) -> Optional[int]:
+        """Return 1-based index of current video in playlist, or None."""
+        with self._lock:
+            if self._current and self._entries:
+                try:
+                    return self._entries.index(self._current) + 1
+                except ValueError:
+                    pass
+            return None
+
     def get_all_entries(self) -> list[dict]:
         """Return a copy of all playlist entries."""
         with self._lock:
