@@ -254,7 +254,7 @@ function formatTime(s) {
 
 let statusFailCount = 0;
 function updateStatus() {
-  fetch('/api/status').then(r => r.json()).then(data => {
+  fetch('/api/status', { signal: AbortSignal.timeout(3000) }).then(r => r.json()).then(data => {
     statusFailCount = 0;
     playing = data.playing;
     document.getElementById('play-btn').innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
@@ -274,7 +274,7 @@ function updateStatus() {
     // Don't overwrite last known state on transient failures (e.g., mpv busy loading).
     // Only show "Disconnected" after several consecutive failures.
     statusFailCount = (statusFailCount || 0) + 1;
-    if (statusFailCount > 5) {
+    if (statusFailCount > 3) {
       document.getElementById('video-info').textContent = 'Disconnected';
     }
   });
