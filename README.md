@@ -31,8 +31,8 @@ A cinema for cats. Plays wildlife videos from a YouTube playlist on a Raspberry 
 
 Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash **Pi OS Lite (64-bit, Bookworm)**. In the settings (gear icon):
 
-- Hostname: `cinegatto`
-- Username: `cinegatto`
+- Hostname: your choice (e.g., `cinegatto`)
+- Username: your choice (e.g., `cinegatto`)
 - Password: your choice
 - WiFi: enter SSID + password
 - SSH: enable
@@ -42,7 +42,7 @@ Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash **Pi O
 SSH into the Pi and run:
 
 ```bash
-ssh cinegatto@cinegatto.local
+ssh <username>@<hostname>.local
 curl -sSL "https://raw.githubusercontent.com/sleeepyjack/cinegatto/main/scripts/bootstrap.sh" | bash
 ```
 
@@ -70,7 +70,7 @@ Set your YouTube playlist URL:
 sudo systemctl start cinegatto
 ```
 
-Open the web UI: **http://cinegatto.local:8080**
+Open the web UI: **http://&lt;hostname&gt;.local:8080**
 
 cinegatto starts automatically on boot.
 
