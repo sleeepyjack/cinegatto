@@ -10,6 +10,6 @@
   "log_ring_size": 500,
   "cache_enabled": true,
   "cache_path": "",
-  "cache_max_size_gb": 64,
+  "cache_disk_usage_pct": 80,
   "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]"
 }

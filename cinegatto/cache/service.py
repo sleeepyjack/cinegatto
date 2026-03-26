@@ -56,10 +56,10 @@ _RETRY_DELAYS = [300, 900, 1800]  # 5 min, 15 min, 30 min
 class CacheService:
     """Unified video cache with background downloads."""
 
-    def __init__(self, cache_path: str, max_size_bytes: int, format_str: str):
+    def __init__(self, cache_path: str, format_str: str, disk_usage_pct: float = 80.0):
         self._cache_path = cache_path
-        self._max_size = max_size_bytes
         self._format = format_str
+        self._disk_usage_pct = disk_usage_pct
 
         # Protects the index dict, size counter, and hit/miss counters.
         # Held briefly for reads (get) and writes (post-download registration).
@@ -89,8 +89,10 @@ class CacheService:
         self._load_index()
         self._reconcile()
         self._recompute_size()
+        max_mb = self._get_max_size() // (1024 * 1024)
         logger.info("CacheService initialized", extra={
-            "path": cache_path, "max_size_mb": max_size_bytes // (1024 * 1024),
+            "path": cache_path, "disk_usage_pct": disk_usage_pct,
+            "max_size_mb": max_mb,
             "cached_videos": len(self._index["entries"]),
             "total_size_mb": self._total_size // (1024 * 1024),
         })
@@ -220,8 +222,8 @@ class CacheService:
                 "total_size": self._total_size,
                 "total_size_mb": self._total_size // (1024 * 1024),
                 "count": len(self._index["entries"]),
-                "max_size": self._max_size,
-                "max_size_mb": self._max_size // (1024 * 1024),
+                "max_size": self._get_max_size(),
+                "max_size_mb": self._get_max_size() // (1024 * 1024),
                 "hits": self._hits,
                 "misses": self._misses,
                 "downloads_completed": self._downloads_completed,
@@ -295,11 +297,11 @@ class CacheService:
         # Skips the download entirely if the video is larger than the entire cache,
         # saving bandwidth and time on the Pi's limited connection.
         estimated = self._estimate_size(yt_dlp_cmd, url)
-        if estimated and estimated > self._max_size:
+        if estimated and estimated > self._get_max_size():
             logger.warning("Video too large for cache, skipping download",
                            extra={"video_id": video_id,
                                   "estimated_mb": estimated // (1024 * 1024),
-                                  "max_mb": self._max_size // (1024 * 1024)})
+                                  "max_mb": self._get_max_size() // (1024 * 1024)})
             return "skip"  # permanent — retrying won't help
 
         logger.info("Downloading", extra={
@@ -363,7 +365,7 @@ class CacheService:
 
         # Evict if needed
         with self._lock:
-            space_needed = file_size - (self._max_size - self._total_size)
+            space_needed = file_size - (self._get_max_size() - self._total_size)
             if space_needed > 0:
                 freed = self._evict_for(space_needed, protect_ids={video_id})
                 if freed < space_needed:
@@ -396,7 +398,7 @@ class CacheService:
 
     def _evict_for(self, needed_bytes: int, protect_ids: set[str]) -> int:
         """Free space. Must be called with self._lock held."""
-        available = self._max_size - self._total_size
+        available = self._get_max_size() - self._total_size
         if available >= needed_bytes:
             return 0
 
@@ -504,6 +506,21 @@ class CacheService:
         self._total_size = sum(
             e.get("size", 0) for e in self._index["entries"].values()
         )
+
+    def _get_max_size(self) -> int:
+        """Compute max cache size from available disk space.
+
+        Uses shutil.disk_usage on the cache directory's filesystem.
+        Returns disk_usage_pct% of total disk space as the budget.
+        Called dynamically (not cached) so it adapts as other services
+        claim or release disk space.
+        """
+        try:
+            usage = shutil.disk_usage(self._cache_path)
+            return int(usage.total * self._disk_usage_pct / 100)
+        except Exception:
+            # Fallback: 16 GB
+            return 16 * 1024 * 1024 * 1024
 
     # --- Helpers ---
 

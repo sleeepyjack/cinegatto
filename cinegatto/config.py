@@ -35,7 +35,7 @@ DEFAULTS = {
     "log_file": ".cinegatto.log",
     "cache_enabled": True,
     "cache_path": "",
-    "cache_max_size_gb": 16,
+    "cache_disk_usage_pct": 80,
     "playlist_refresh_sec": 1800,
     "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
 }
@@ -56,7 +56,7 @@ VALIDATORS = {
     "log_file": lambda v: isinstance(v, str),
     "cache_enabled": lambda v: isinstance(v, bool),
     "cache_path": lambda v: isinstance(v, str),
-    "cache_max_size_gb": lambda v: isinstance(v, (int, float)),
+    "cache_disk_usage_pct": lambda v: isinstance(v, (int, float)),
     "playlist_refresh_sec": lambda v: isinstance(v, (int, float)),
     "cache_format": lambda v: isinstance(v, str),
 }
@@ -118,5 +118,6 @@ def _validate(config):
         raise ConfigError("playlist_refresh_sec must be >= 10")
     if config.get("watchdog_timeout_sec", 10) < 1:
         raise ConfigError("watchdog_timeout_sec must be >= 1")
-    if config.get("cache_max_size_gb", 16) < 0:
-        raise ConfigError("cache_max_size_gb must be >= 0")
+    pct = config.get("cache_disk_usage_pct", 80)
+    if pct < 1 or pct > 99:
+        raise ConfigError("cache_disk_usage_pct must be 1-99")

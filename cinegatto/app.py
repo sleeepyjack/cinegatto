@@ -170,8 +170,10 @@ def run(config_path: str = None) -> None:
             if not cache_path:
                 cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
             cache_path = os.path.expanduser(cache_path)
-            max_bytes = int(config["cache_max_size_gb"] * 1024**3)
-            cache_service = CacheService(cache_path, max_bytes, config["cache_format"])
+            cache_service = CacheService(
+                cache_path, config["cache_format"],
+                disk_usage_pct=config["cache_disk_usage_pct"],
+            )
             cache_service.start()
         except Exception:
             logger.exception("Cache unavailable, continuing without caching")
