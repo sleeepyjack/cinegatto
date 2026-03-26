@@ -1,56 +1,60 @@
-"""Pi 5 display power management via DRM/DPMS.
+"""Pi 5 display power management via DDC/CI (ddcutil).
 
-Pi 5 doesn't support vcgencmd display_power (that's Pi 4 and older).
-Instead we write to /sys/class/drm/*/dpms to control HDMI power.
+Pi 5 doesn't support vcgencmd display_power (Pi 4 only), and sysfs DPMS
+writes fail because mpv holds the DRM master lock. DDC/CI communicates
+with the monitor over I2C, which is completely independent of DRM.
+
+Requires: sudo apt install ddcutil, i2c-dev module loaded.
 """
 
-import glob
 import logging
 import subprocess
 
 logger = logging.getLogger("cinegatto.display.pi")
 
 
-def _find_hdmi_dpms():
-    """Find the DPMS sysfs path for the first connected HDMI output."""
-    for path in sorted(glob.glob("/sys/class/drm/card*-HDMI-*/dpms")):
-        # Check if connected
-        status_path = path.replace("/dpms", "/status")
-        try:
-            with open(status_path) as f:
-                if f.read().strip() == "connected":
-                    return path
-        except FileNotFoundError:
-            continue
-    # Fallback: try the first HDMI DPMS path regardless of status
-    paths = sorted(glob.glob("/sys/class/drm/card*-HDMI-*/dpms"))
-    return paths[0] if paths else None
-
-
 class PiDisplay:
-    """Controls HDMI display power on Raspberry Pi 5 via DRM DPMS."""
+    """Controls monitor power via DDC/CI (ddcutil).
+
+    VCP code 0xD6 (Power Mode):
+      1 = On
+      5 = Standby
+    """
 
     def __init__(self):
-        self._dpms_path = _find_hdmi_dpms()
-        if self._dpms_path:
-            logger.info("HDMI DPMS path: %s", self._dpms_path)
+        self._available = self._check_ddcutil()
+        if self._available:
+            logger.info("Display control via ddcutil (DDC/CI)")
         else:
-            logger.warning("No HDMI DPMS path found — display power control disabled")
+            logger.warning("ddcutil not available — display power control disabled")
 
     def power_on(self) -> None:
         logger.debug("Display power ON")
-        self._set_dpms("On")
+        self._set_power(1)
 
     def power_off(self) -> None:
-        logger.debug("Display power OFF")
-        self._set_dpms("Off")
+        logger.debug("Display power OFF (standby)")
+        self._set_power(5)
 
-    def _set_dpms(self, state: str) -> None:
-        if not self._dpms_path:
+    def _set_power(self, value: int) -> None:
+        if not self._available:
             return
         try:
-            # Write directly — udev rule makes this writable for the video group
-            with open(self._dpms_path, "w") as f:
-                f.write(state)
+            subprocess.run(
+                ["ddcutil", "setvcp", "d6", str(value)],
+                capture_output=True, timeout=10,
+            )
         except Exception:
-            logger.exception("Failed to set DPMS to %s", state)
+            logger.exception("Failed to set display power to %d", value)
+
+    def _check_ddcutil(self) -> bool:
+        try:
+            result = subprocess.run(
+                ["ddcutil", "detect"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return "Display 1" in result.stdout
+        except FileNotFoundError:
+            return False
+        except Exception:
+            return False

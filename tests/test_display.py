@@ -1,4 +1,4 @@
-from unittest.mock import patch, call, mock_open
+from unittest.mock import patch, MagicMock
 
 from cinegatto.display.noop import NoopDisplay
 from cinegatto.display.pi import PiDisplay
@@ -7,30 +7,36 @@ from cinegatto.display.pi import PiDisplay
 class TestNoopDisplay:
     def test_power_on_does_not_raise(self):
         d = NoopDisplay()
-        d.power_on()  # should not raise
+        d.power_on()
 
     def test_power_off_does_not_raise(self):
         d = NoopDisplay()
-        d.power_off()  # should not raise
+        d.power_off()
 
 
 class TestPiDisplay:
-    @patch("cinegatto.display.pi._find_hdmi_dpms", return_value="/sys/class/drm/card1-HDMI-A-1/dpms")
-    @patch("builtins.open", mock_open())
-    def test_power_on_writes_dpms(self, mock_find):
+    @patch("cinegatto.display.pi.PiDisplay._check_ddcutil", return_value=True)
+    @patch("cinegatto.display.pi.subprocess.run")
+    def test_power_on_calls_ddcutil(self, mock_run, _):
         d = PiDisplay()
         d.power_on()
-        open.assert_called_with("/sys/class/drm/card1-HDMI-A-1/dpms", "w")
+        mock_run.assert_called_with(
+            ["ddcutil", "setvcp", "d6", "1"],
+            capture_output=True, timeout=10,
+        )
 
-    @patch("cinegatto.display.pi._find_hdmi_dpms", return_value="/sys/class/drm/card1-HDMI-A-1/dpms")
-    @patch("builtins.open", mock_open())
-    def test_power_off_writes_dpms(self, mock_find):
+    @patch("cinegatto.display.pi.PiDisplay._check_ddcutil", return_value=True)
+    @patch("cinegatto.display.pi.subprocess.run")
+    def test_power_off_calls_ddcutil_standby(self, mock_run, _):
         d = PiDisplay()
         d.power_off()
-        open.assert_called_with("/sys/class/drm/card1-HDMI-A-1/dpms", "w")
+        mock_run.assert_called_with(
+            ["ddcutil", "setvcp", "d6", "5"],
+            capture_output=True, timeout=10,
+        )
 
-    @patch("cinegatto.display.pi._find_hdmi_dpms", return_value=None)
-    def test_no_dpms_path_does_not_raise(self, _):
+    @patch("cinegatto.display.pi.PiDisplay._check_ddcutil", return_value=False)
+    def test_no_ddcutil_does_not_raise(self, _):
         d = PiDisplay()
-        d.power_on()  # should not raise
+        d.power_on()
         d.power_off()
