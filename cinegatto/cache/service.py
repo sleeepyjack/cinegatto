@@ -173,6 +173,10 @@ class CacheService:
         """Re-enqueue a failed download after a delay (called via Timer)."""
         if not self._running or self.contains(video_id):
             return
+        with self._queued_lock:
+            if video_id in self._queued_ids:
+                return
+            self._queued_ids.add(video_id)
         self._download_queue.put(("download", video_id, url, retry_count))
         logger.debug("Retry enqueued", extra={"video_id": video_id, "retry": retry_count})
 
@@ -243,9 +247,10 @@ class CacheService:
             retry_count = item[3] if len(item) > 3 else 0
             with self._lock:
                 self._current_download_id = video_id
-            success = False
+            # _download returns: "ok", "fail" (retryable), "skip" (permanent)
+            result = "fail"
             try:
-                success = self._download(video_id, url)
+                result = self._download(video_id, url)
             except Exception:
                 with self._lock:
                     self._downloads_failed += 1
@@ -256,8 +261,8 @@ class CacheService:
                 with self._queued_lock:
                     self._queued_ids.discard(video_id)
                 self._download_queue.task_done()
-            # Retry failed downloads with exponential backoff (max 3 retries)
-            if not success and self._running and retry_count < _MAX_RETRIES:
+            # Retry only transient failures, not permanent ones (e.g., too large for cache)
+            if result == "fail" and self._running and retry_count < _MAX_RETRIES:
                 delay = _RETRY_DELAYS[retry_count]
                 logger.debug("Will retry download in %ds",
                              delay, extra={"video_id": video_id, "retry": retry_count + 1})
@@ -269,13 +274,13 @@ class CacheService:
             if self._running:
                 time.sleep(_DOWNLOAD_GAP)
 
-    def _download(self, video_id: str, url: str) -> bool:
-        """Download a video. Returns True on success, False on failure."""
+    def _download(self, video_id: str, url: str) -> str:
+        """Download a video. Returns 'ok', 'fail' (retryable), or 'skip' (permanent)."""
         if not self._running:
-            return False
+            return "skip"
         if self.contains(video_id):
             logger.debug("Already cached, skipping download", extra={"video_id": video_id})
-            return True  # not a failure
+            return "ok"
 
         part_path = os.path.join(self._cache_path, f"{video_id}.part")
         final_path = os.path.join(self._cache_path, f"{video_id}.mp4")
@@ -295,7 +300,7 @@ class CacheService:
                            extra={"video_id": video_id,
                                   "estimated_mb": estimated // (1024 * 1024),
                                   "max_mb": self._max_size // (1024 * 1024)})
-            return False
+            return "skip"  # permanent — retrying won't help
 
         logger.info("Downloading", extra={
             "video_id": video_id,
@@ -314,7 +319,7 @@ class CacheService:
         try:
             with self._proc_lock:
                 if not self._running:
-                    return False
+                    return "skip"
                 self._current_proc = subprocess.Popen(
                     cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                 )
@@ -338,7 +343,7 @@ class CacheService:
                 logger.warning("yt-dlp exited with code %d", returncode,
                                extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
-                return False
+                return "fail"  # retryable — network/transient error
         except Exception:
             with self._proc_lock:
                 self._current_proc = None
@@ -347,12 +352,12 @@ class CacheService:
 
         if not self._running:
             self._cleanup_part_files(video_id)
-            return False
+            return "skip"
 
         actual_path = self._find_output(part_path)
         if not actual_path:
             logger.warning("Download output not found", extra={"video_id": video_id})
-            return False
+            return "fail"
 
         file_size = os.path.getsize(actual_path)
 
@@ -365,7 +370,7 @@ class CacheService:
                     logger.warning("Video too large for cache",
                                    extra={"video_id": video_id, "size_mb": file_size // (1024 * 1024)})
                     os.unlink(actual_path)
-                    return False
+                    return "skip"  # permanent — video won't fit even after eviction
 
         # Atomic rename: the .part file becomes the final .mp4. os.replace is
         # atomic on POSIX, so a crash mid-rename won't leave a corrupt file.
@@ -385,7 +390,7 @@ class CacheService:
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
-        return True
+        return "ok"
 
     # --- Eviction ---
 

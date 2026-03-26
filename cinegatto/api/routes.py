@@ -101,7 +101,7 @@ def sync():
     from cinegatto.playlist.fetcher import fetch_playlist
 
     if not _controller:
-        return jsonify({"status": "error", "message": "not ready"})
+        return jsonify({"status": "error", "message": "not ready"}), 503
 
     # Refresh playlist
     playlist_refreshed = False

@@ -40,10 +40,13 @@ class PiDisplay:
         if not self._available:
             return
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["ddcutil", "setvcp", "d6", str(value)],
                 capture_output=True, timeout=10,
             )
+            if result.returncode != 0:
+                logger.warning("ddcutil setvcp failed",
+                               extra={"returncode": result.returncode, "value": value})
         except Exception:
             logger.exception("Failed to set display power to %d", value)
 
@@ -51,9 +54,9 @@ class PiDisplay:
         try:
             result = subprocess.run(
                 ["ddcutil", "detect"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, timeout=10,
             )
-            return "Display 1" in result.stdout
+            return result.returncode == 0
         except FileNotFoundError:
             return False
         except Exception:

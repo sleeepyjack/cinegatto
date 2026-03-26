@@ -110,3 +110,13 @@ def _validate(config):
                 f"{key} has invalid type: expected {type(DEFAULTS[key]).__name__}, "
                 f"got {type(config[key]).__name__}"
             )
+    # Semantic bounds checks
+    port = config.get("api_port", 8080)
+    if port < 1 or port > 65535:
+        raise ConfigError(f"api_port must be 1-65535, got {port}")
+    if config.get("playlist_refresh_sec", 1800) < 10:
+        raise ConfigError("playlist_refresh_sec must be >= 10")
+    if config.get("watchdog_timeout_sec", 10) < 1:
+        raise ConfigError("watchdog_timeout_sec must be >= 1")
+    if config.get("cache_max_size_gb", 16) < 0:
+        raise ConfigError("cache_max_size_gb must be >= 0")
