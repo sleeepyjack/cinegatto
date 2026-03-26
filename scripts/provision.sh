@@ -61,11 +61,6 @@ sudo tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null << 'EOF'
 wifi.powersave = 2
 EOF
 
-# --- Step 7: Default config ---
-if [ ! -f "$REPO_DIR/cinegatto.json" ]; then
-    cp "$REPO_DIR/cinegatto.json.example" "$REPO_DIR/cinegatto.json"
-    echo "  Created cinegatto.json from example — edit to set your playlist URL."
-fi
 
 # --- Step 8: Generate and install systemd service ---
 echo "Installing systemd service..."
