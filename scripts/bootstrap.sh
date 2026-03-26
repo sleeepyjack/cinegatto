@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/sleeepyjack/cinegatto/archive/refs/heads/main.tar.gz"
-REPO_DIR="$HOME/cinegatto"
+REPO_DIR="${CINEGATTO_DIR:-$HOME/cinegatto}"
 
 echo ""
 echo "=== cinegatto bootstrap ==="

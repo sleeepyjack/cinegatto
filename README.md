@@ -46,6 +46,12 @@ ssh <username>@<hostname>.local
 curl -sSL "https://raw.githubusercontent.com/sleeepyjack/cinegatto/main/scripts/bootstrap.sh" | bash
 ```
 
+By default this installs to `~/cinegatto`. Override with `CINEGATTO_DIR`:
+
+```bash
+CINEGATTO_DIR=/opt/cinegatto curl -sSL "..." | bash
+```
+
 This downloads cinegatto, installs dependencies (mpv, ddcutil, Python venv), configures the system, and sets up the systemd service.
 
 ### 3. Configure

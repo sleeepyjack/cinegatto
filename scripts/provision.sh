@@ -3,7 +3,13 @@
 # Run via bootstrap.sh or directly: cd ~/cinegatto && bash scripts/provision.sh
 set -euo pipefail
 
-REPO_DIR="$HOME/cinegatto"
+# Detect repo root: if run from the repo, use that. Otherwise default to $HOME/cinegatto.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/../requirements.txt" ]; then
+    REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    REPO_DIR="${CINEGATTO_DIR:-$HOME/cinegatto}"
+fi
 VENV_DIR="$REPO_DIR/venv"
 SERVICE_USER="$USER"
 SERVICE_NAME="cinegatto"
