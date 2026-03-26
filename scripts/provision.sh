@@ -82,8 +82,6 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=${VENV_DIR}/bin/python -m cinegatto
 Restart=always
 RestartSec=5
-TTYPath=/dev/tty1
-StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 
