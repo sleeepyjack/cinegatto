@@ -159,9 +159,43 @@ class PlaybackController:
         self._display.power_off()
 
     def _do_next(self) -> None:
+        video = self._pick_cached_or_next()
+        if video:
+            logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
+            self._load_video(video)
+
+    def _pick_cached_or_next(self) -> Optional[dict]:
+        """Pick next video, only playing cached ones.
+
+        Tries the selector's pick first. If uncached, scans for any cached
+        video. If nothing is cached, returns None (nothing to play).
+        Uncached videos are still queued for download via warm().
+        """
         video = self._selector.pick()
-        logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
-        self._load_video(video)
+
+        # No cache service — play whatever (streaming mode)
+        if not self._cache:
+            return video
+
+        # Selected video is cached — great
+        if self._cache.contains(video["id"]):
+            return video
+
+        # Not cached — enqueue for download and find a cached alternative
+        self._cache.warm(video["id"], video["url"])
+        logger.info("Video not cached, looking for alternative",
+                    extra={"video_id": video["id"]})
+
+        cached_entries = [e for e in self._selector.get_all_entries()
+                         if self._cache.contains(e["id"])]
+        if cached_entries:
+            fallback = random.choice(cached_entries)
+            logger.info("Playing cached video instead",
+                        extra={"video_id": fallback["id"], "original": video["id"]})
+            return fallback
+
+        logger.warning("No cached videos available — waiting for downloads")
+        return None
 
     def _do_previous(self) -> None:
         video = self._selector.previous()
@@ -172,18 +206,13 @@ class PlaybackController:
         self._load_video(video)
 
     def _load_video(self, video: dict) -> None:
-        """Load a video — from cache if available, else stream from YouTube.
+        """Load a video from cache. Only plays cached videos.
 
-        Cache interaction pattern:
-        - get() is synchronous and instant (index lookup + file existence check).
-        - warm() is fire-and-forget; it enqueues a background download. The cache
-          service deduplicates, so calling warm() on an already-cached or
-          already-queued video is a no-op.
-        - We also pre-warm the next video (peek_next) so it's likely cached
-          by the time the current one finishes.
+        Cache interaction:
+        - get() returns the local file path (instant)
+        - warm() queues uncached videos for background download
+        - Pre-warms the next video so it's ready when current one ends
         """
-        # Cap at 80% to avoid starting near the end where the video might be
-        # credits or a fade-out.
         start_percent = None
         if self._random_start:
             start_percent = random.uniform(0, 80.0)
@@ -195,13 +224,14 @@ class PlaybackController:
             logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
         else:
+            # No cache or not cached — shouldn't happen if _pick_cached_or_next works,
+            # but fall back to streaming as a safety net
             logger.info("Cache MISS — streaming", extra={"video_id": video["id"]})
             self._player.load_video(video["url"], start_percent=start_percent)
 
         # Always request caching (service handles dedup/queue)
         if self._cache:
             self._cache.warm(video["id"], video["url"])
-            # Pre-warm the next video so it's ready when the current one ends
             for entry in self._selector.peek_next(n=1):
                 self._cache.warm(entry["id"], entry["url"])
 

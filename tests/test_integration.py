@@ -116,8 +116,8 @@ class TestCacheIntegration:
         finally:
             controller.stop()
 
-    def test_cache_miss_streams_from_youtube(self, tmp_path):
-        """Cache miss: streams from YouTube, warms cache for later."""
+    def test_cache_miss_queues_download_no_playback(self, tmp_path):
+        """Cache miss with no cached alternatives: queues download, nothing plays."""
         player = MagicMock()
         player.get_state.return_value = PlayerState()
         entries = [
@@ -127,7 +127,7 @@ class TestCacheIntegration:
         selector = Selector(entries, shuffle=False)
         display = NoopDisplay()
         cache = MagicMock()
-        cache.get.return_value = None  # cache miss
+        cache.get.return_value = None
         cache.contains.return_value = False
 
         controller = PlaybackController(
@@ -138,10 +138,9 @@ class TestCacheIntegration:
         try:
             controller.next_video()
             controller._queue.join()
-            player.load_video.assert_called_once()
-            loaded_url = player.load_video.call_args[0][0]
-            assert "youtube.com" in loaded_url
-            # Cache warm should be called
+            # No cached videos — nothing plays
+            player.load_video.assert_not_called()
+            # But download should be queued
             assert cache.warm.called
         finally:
             controller.stop()
