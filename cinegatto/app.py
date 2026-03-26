@@ -227,7 +227,8 @@ def run(config_path: str = None) -> None:
     )
     refresh_thread.start()
 
-    # Auto-play first video
+    # Wake display and auto-play first video
+    display.power_on()
     logger.info("Auto-playing first video")
     controller.next_video()
 
