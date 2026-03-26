@@ -74,6 +74,8 @@ cat > /tmp/cinegatto.service << EOF
 Description=Cinegatto - Cinema for Cats
 After=network-online.target
 Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -83,8 +85,6 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=${VENV_DIR}/bin/python -m cinegatto
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
