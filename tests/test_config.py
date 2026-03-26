@@ -11,7 +11,7 @@ class TestLoadConfig:
         """Loading with a nonexistent config file returns all defaults."""
         config = load_config(config_path=str(tmp_path / "nonexistent.json"))
         assert config["api_port"] == 8080
-        assert config["log_level"] == "debug"
+        assert config["log_level"] == "info"
         assert config["audio"] is False
         assert config["mpv_extra_args"] == []
         assert config["watchdog_timeout_sec"] == 10
@@ -33,7 +33,7 @@ class TestLoadConfig:
         assert config["api_port"] == 3000
         assert config["audio"] is True
         # Non-overridden values come from defaults
-        assert config["log_level"] == "debug"
+        assert config["log_level"] == "info"
 
     def test_missing_config_file_uses_defaults(self):
         """A nonexistent config path falls back to defaults without error."""

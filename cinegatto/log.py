@@ -71,6 +71,9 @@ def setup_logging(level="debug", ring_size=500, log_file=None):
     logger.setLevel(log_level)
     logger.handlers.clear()
 
+    # Silence werkzeug's per-request HTTP logs (noisy at INFO from status polling)
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
     formatter = JsonFormatter(
         fmt="%(message)s %(levelname)s %(name)s",
         rename_fields={"levelname": "level", "asctime": "timestamp"},

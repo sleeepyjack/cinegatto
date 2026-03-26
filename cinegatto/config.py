@@ -25,7 +25,7 @@ logger = logging.getLogger("cinegatto.config")
 DEFAULTS = {
     "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd",
     "api_port": 8080,
-    "log_level": "debug",
+    "log_level": "info",
     "audio": False,
     "shuffle": True,
     "random_start": True,

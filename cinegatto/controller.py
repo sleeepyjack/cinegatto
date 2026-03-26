@@ -139,7 +139,7 @@ class PlaybackController:
             logger.warning("Unknown command: %s", action)
 
     def _do_play(self) -> None:
-        logger.debug("Executing play")
+        logger.info("Executing play")
         # Order: power on display first, brief delay for HDMI signal to stabilize,
         # then un-black the video and unpause. Reversing this would show a flash
         # of video on a monitor that's still waking up.
@@ -149,7 +149,7 @@ class PlaybackController:
         self._player.play()
 
     def _do_pause(self) -> None:
-        logger.debug("Executing pause")
+        logger.info("Executing pause")
         # Order: pause playback, black out video (so the last frame isn't frozen
         # on screen during HDMI signal loss), brief delay, then power off display.
         # Inverse of _do_play.
@@ -213,7 +213,7 @@ class PlaybackController:
         cached_path = self._cache.get(video["id"]) if self._cache else None
 
         if cached_path:
-            logger.debug("Cache HIT", extra={"video_id": video["id"]})
+            logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
         else:
             logger.info("Cache MISS — streaming", extra={"video_id": video["id"]})
@@ -232,7 +232,7 @@ class PlaybackController:
             state = self._player.get_state()
             if state.duration > 0:
                 pos = random.uniform(0, state.duration * 0.8)
-                logger.debug("Random seek", extra={"position": round(pos, 1), "duration": round(state.duration, 1)})
+                logger.info("Random seek", extra={"position": round(pos, 1), "duration": round(state.duration, 1)})
                 self._player.seek(pos)
             else:
                 logger.debug("Cannot random seek — no duration available")
