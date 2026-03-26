@@ -145,6 +145,8 @@ def run(config_path: str = None) -> None:
             controller_ref[0].on_video_end()
 
     mpv_args = ["--no-audio"] if not config["audio"] else []
+    if not _is_pi():
+        mpv_args.append("--force-window=yes")  # macOS needs a window; Pi uses DRM (no window)
     mpv_args.extend(config.get("mpv_extra_args", []))
 
     player = MpvPlayer(
