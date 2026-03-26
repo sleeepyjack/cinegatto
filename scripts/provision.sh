@@ -49,9 +49,11 @@ hwdec=drm-copy
 fullscreen=yes
 MPVCONF
 
-# --- Step 5: User groups for DRM/video access ---
-echo "Adding user to video and render groups..."
-sudo usermod -aG video,render "$USER" 2>/dev/null || true
+# --- Step 5: User groups for DRM/video/tty access ---
+echo "Adding user to video, render, and tty groups..."
+sudo usermod -aG video,render,tty "$USER" 2>/dev/null || true
+# Ensure tty1 is group-accessible (needed for systemd service to use TTYPath)
+sudo chmod g+rw /dev/tty1 2>/dev/null || true
 
 # --- Step 6: Disable WiFi power save (persistent) ---
 echo "Disabling WiFi power save..."
