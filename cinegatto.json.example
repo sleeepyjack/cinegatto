@@ -1,0 +1,10 @@
+{
+  "playlist_url": "https://youtube.com/playlist?list=YOUR_PLAYLIST_ID",
+  "api_port": 8080,
+  "log_level": "info",
+  "audio": false,
+  "shuffle": true,
+  "random_start": true,
+  "cache_enabled": true,
+  "cache_max_size_gb": 16
+}

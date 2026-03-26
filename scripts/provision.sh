@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# cinegatto provisioning script for Raspberry Pi OS Lite (Bookworm 64-bit)
-# Run this on the Pi after flashing the OS and enabling SSH.
-# Usage: bash provision.sh
+# cinegatto provisioning for Raspberry Pi OS Lite (Bookworm 64-bit)
+# Run via bootstrap.sh or directly: cd ~/cinegatto && bash scripts/provision.sh
 set -euo pipefail
 
 REPO_DIR="$HOME/cinegatto"
 VENV_DIR="$REPO_DIR/venv"
+SERVICE_USER="$USER"
 SERVICE_NAME="cinegatto"
 
 echo "=== cinegatto provisioning ==="
 
-# --- Step 1: Install mpv (only sudo call for packages) ---
+# --- Verify repo exists ---
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "ERROR: Repo not found at $REPO_DIR."
+    echo "  Run: git clone https://github.com/sleeepyjack/cinegatto.git $REPO_DIR"
+    exit 1
+fi
+
+# --- Step 1: Install mpv (only apt call) ---
 echo "Installing mpv..."
 sudo apt update -qq
 sudo apt install -y -qq mpv
@@ -19,34 +26,21 @@ sudo apt install -y -qq mpv
 echo "Verifying binaries..."
 for cmd in python3 mpv git; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo "ERROR: $cmd not found. Please install it manually."
+        echo "ERROR: $cmd not found."
         exit 1
     fi
 done
 echo "  python3: $(python3 --version)"
 echo "  mpv: $(mpv --version | head -1)"
-echo "  git: $(git --version)"
 
-# --- Step 3: Clone or update repo ---
-if [ -d "$REPO_DIR/.git" ]; then
-    echo "Updating existing repo..."
-    cd "$REPO_DIR" && git pull
-else
-    echo "Cloning repo..."
-    # TODO: Replace with actual repo URL once published
-    echo "ERROR: Please clone the cinegatto repo to $REPO_DIR first."
-    echo "  git clone <repo-url> $REPO_DIR"
-    exit 1
-fi
-
-# --- Step 4: Create venv and install deps ---
+# --- Step 3: Python venv + deps ---
 echo "Setting up Python venv..."
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip -q
 "$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt" -q
 echo "  Dependencies installed."
 
-# --- Step 5: Configure mpv for Pi 5 headless ---
+# --- Step 4: mpv config for Pi 5 headless (DRM output) ---
 echo "Configuring mpv for DRM output..."
 mkdir -p "$HOME/.config/mpv"
 cat > "$HOME/.config/mpv/mpv.conf" << 'MPVCONF'
@@ -55,36 +49,61 @@ hwdec=drm-copy
 fullscreen=yes
 MPVCONF
 
-# --- Step 6: User groups for DRM/video access ---
+# --- Step 5: User groups for DRM/video access ---
 echo "Adding user to video and render groups..."
 sudo usermod -aG video,render "$USER" 2>/dev/null || true
 
-# --- Step 7: Disable WiFi power save ---
+# --- Step 6: Disable WiFi power save (persistent) ---
 echo "Disabling WiFi power save..."
-sudo iw wlan0 set power_save off 2>/dev/null || echo "  (WiFi power save: skipped, may not apply)"
+sudo mkdir -p /etc/NetworkManager/conf.d
+sudo tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null << 'EOF'
+[connection]
+wifi.powersave = 2
+EOF
 
-# --- Step 8: Configure tmpfs for logs ---
-echo "Setting up tmpfs log directory..."
-sudo mkdir -p /run/log/cinegatto
-sudo chown "$USER:$USER" /run/log/cinegatto
+# --- Step 7: Default config ---
+if [ ! -f "$REPO_DIR/cinegatto.json" ]; then
+    cp "$REPO_DIR/cinegatto.json.example" "$REPO_DIR/cinegatto.json"
+    echo "  Created cinegatto.json from example — edit to set your playlist URL."
+fi
 
-# --- Step 9: Install systemd service ---
+# --- Step 8: Generate and install systemd service ---
 echo "Installing systemd service..."
-sudo cp "$REPO_DIR/scripts/cinegatto.service" /etc/systemd/system/
+cat > /tmp/cinegatto.service << EOF
+[Unit]
+Description=Cinegatto - Cinema for Cats
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+WorkingDirectory=${REPO_DIR}
+Environment=PYTHONUNBUFFERED=1
+ExecStart=${VENV_DIR}/bin/python -m cinegatto
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo mv /tmp/cinegatto.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 
 echo ""
 echo "=== Provisioning complete ==="
 echo ""
-echo "To start cinegatto now:"
-echo "  sudo systemctl start cinegatto"
+echo "  sudo systemctl start cinegatto   # start now"
+echo "  sudo systemctl status cinegatto  # check status"
+echo "  journalctl -u cinegatto -f       # follow logs"
 echo ""
-echo "To check status:"
-echo "  sudo systemctl status cinegatto"
-echo "  journalctl -u cinegatto -f"
+echo "  Web UI: http://$(hostname).local:8080"
 echo ""
-echo "Web UI will be available at:"
-echo "  http://$(hostname).local:8080"
-echo ""
-echo "NOTE: You may need to log out and back in for group changes to take effect."
+echo "NOTE: Log out and back in for group changes to take effect."

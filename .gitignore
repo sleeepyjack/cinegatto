@@ -8,3 +8,4 @@ pytest-of-*/
 .cache/
 .project/
 .claude/
+cinegatto.json
