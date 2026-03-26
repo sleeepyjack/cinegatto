@@ -52,8 +52,14 @@ MPVCONF
 # --- Step 5: User groups for DRM/video/tty access ---
 echo "Adding user to video, render, and tty groups..."
 sudo usermod -aG video,render,tty "$USER" 2>/dev/null || true
-# Ensure tty1 is group-accessible (needed for systemd service to use TTYPath)
 sudo chmod g+rw /dev/tty1 2>/dev/null || true
+
+# --- Step 5b: Allow passwordless DPMS control for display power ---
+echo "Configuring display power permissions..."
+sudo tee /etc/sudoers.d/cinegatto-dpms > /dev/null << EOF
+${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/drm/card*-HDMI-*/dpms
+EOF
+sudo chmod 440 /etc/sudoers.d/cinegatto-dpms
 
 # --- Step 6: Disable WiFi power save (persistent) ---
 echo "Disabling WiFi power save..."
