@@ -147,6 +147,10 @@ def run(config_path: str = None) -> None:
     mpv_args = ["--no-audio"] if not config["audio"] else []
     if not _is_pi():
         mpv_args.append("--force-window=yes")  # macOS needs a window; Pi uses DRM (no window)
+    # Tell mpv where to find yt-dlp (systemd PATH doesn't include the venv)
+    yt_dlp_path = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
+    if os.path.isfile(yt_dlp_path):
+        mpv_args.append(f"--script-opts=ytdl_hook-ytdl_path={yt_dlp_path}")
     mpv_args.extend(config.get("mpv_extra_args", []))
 
     player = MpvPlayer(
