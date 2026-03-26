@@ -159,30 +159,9 @@ class PlaybackController:
         self._display.power_off()
 
     def _do_next(self) -> None:
-        video = self._pick_cached_or_next()
+        video = self._selector.pick()
         logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
         self._load_video(video)
-
-    def _pick_cached_or_next(self) -> dict:
-        """Pick next video, preferring cached ones when uncached would fail.
-
-        If the selector's pick is cached, use it. If not, check whether ANY
-        cached video exists — if so, fall back to a random cached one. This
-        prevents infinite error loops when the network is down but the cache
-        has content. Only falls through to an uncached pick if nothing is cached.
-        """
-        video = self._selector.pick()
-        if not self._cache or self._cache.contains(video["id"]):
-            return video
-        # Selected video is not cached — try to find any cached fallback
-        cached_entries = [e for e in self._selector.get_all_entries()
-                         if self._cache.contains(e["id"])]
-        if cached_entries:
-            fallback = random.choice(cached_entries)
-            logger.info("Falling back to cached video",
-                        extra={"video_id": fallback["id"], "original": video["id"]})
-            return fallback
-        return video
 
     def _do_previous(self) -> None:
         video = self._selector.previous()
