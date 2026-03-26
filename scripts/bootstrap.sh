@@ -10,6 +10,13 @@ echo ""
 echo "=== cinegatto bootstrap ==="
 echo ""
 
+# Ensure git is available
+if ! command -v git &>/dev/null; then
+    echo "Installing git..."
+    sudo apt update -qq
+    sudo apt install -y -qq git
+fi
+
 # Clone or update
 if [ -d "$REPO_DIR/.git" ]; then
     echo "Updating existing repo..."
