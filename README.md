@@ -99,9 +99,9 @@ All settings live in `cinegatto.json`. Only override what you need — defaults 
 | `random_start` | `true` | Seek to random position on load |
 | `cache_enabled` | `true` | Download videos for offline playback |
 | `cache_disk_usage_pct` | `80` | Max % of disk space for cache |
-| `cache_format` | `bestvideo[height<=720]...` | yt-dlp format for downloads |
+| `cache_format` | `bestvideo[height<=1080]...` | yt-dlp format for downloads |
 | `playlist_refresh_sec` | `1800` | Playlist refresh interval (seconds) |
-| `log_level` | `debug` | Logging level |
+| `log_level` | `info` | Logging level (debug for development) |
 
 ## Local Development (macOS)
 

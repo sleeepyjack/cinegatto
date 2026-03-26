@@ -264,21 +264,23 @@ def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
             logger.debug("Standby retry failed: %s", e)
 
 
+def refresh_playlist(playlist_url: str, selector: Selector, cache_service=None) -> bool:
+    """Fetch playlist from YouTube, update selector, clean cache. Returns True on success."""
+    try:
+        entries = fetch_playlist(playlist_url)
+        selector.update_entries(entries)
+        if cache_service:
+            playlist_ids = {e["id"] for e in entries}
+            cache_service.cleanup(playlist_ids)
+        return True
+    except Exception as e:
+        logger.warning("Playlist refresh failed: %s", e)
+        return False
+
+
 def _playlist_refresh_loop(playlist_url: str, selector: Selector,
                            cache_service=None, interval: float = 1800) -> None:
-    """Periodically re-fetch playlist metadata.
-
-    Runs as a daemon thread. On each refresh we update the selector's entries
-    (so new videos appear and removed ones stop being picked) and tell the
-    cache to mark removed videos for priority eviction.
-    """
+    """Periodically re-fetch playlist metadata."""
     while True:
         time.sleep(interval)
-        try:
-            entries = fetch_playlist(playlist_url)
-            selector.update_entries(entries)
-            if cache_service:
-                playlist_ids = {e["id"] for e in entries}
-                cache_service.cleanup(playlist_ids)
-        except Exception as e:
-            logger.warning("Playlist refresh failed: %s", e)
+        refresh_playlist(playlist_url, selector, cache_service)

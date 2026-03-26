@@ -160,16 +160,15 @@ class PlaybackController:
 
     def _do_next(self) -> None:
         video = self._pick_cached_or_next()
-        if video:
-            logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
-            self._load_video(video)
+        logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
+        self._load_video(video)
 
-    def _pick_cached_or_next(self) -> Optional[dict]:
-        """Pick next video, only playing cached ones.
+    def _pick_cached_or_next(self) -> dict:
+        """Pick next video, preferring cached ones.
 
         Tries the selector's pick first. If uncached, scans for any cached
-        video. If nothing is cached, returns None (nothing to play).
-        Uncached videos are still queued for download via warm().
+        video. If nothing is cached at all, falls back to streaming (first-run
+        bootstrap). Uncached videos are queued for download via warm().
         """
         video = self._selector.pick()
 
@@ -194,8 +193,10 @@ class PlaybackController:
                         extra={"video_id": fallback["id"], "original": video["id"]})
             return fallback
 
-        logger.warning("No cached videos available — waiting for downloads")
-        return None
+        # Nothing cached at all — stream this one to bootstrap the first-run experience.
+        # Once at least one video finishes downloading, cache-only mode kicks in.
+        logger.info("No cached videos yet — streaming to bootstrap", extra={"video_id": video["id"]})
+        return video
 
     def _do_previous(self) -> None:
         video = self._selector.previous()

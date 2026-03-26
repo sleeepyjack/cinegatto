@@ -37,7 +37,7 @@ DEFAULTS = {
     "cache_path": "",
     "cache_disk_usage_pct": 80,
     "playlist_refresh_sec": 1800,
-    "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
+    "cache_format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
 }
 
 # Type validators — only check type, not semantic validity (e.g., port range).

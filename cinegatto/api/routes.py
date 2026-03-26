@@ -98,24 +98,21 @@ def cache():
 @api.route("/sync", methods=["POST"])
 def sync():
     """Refresh playlist from YouTube, then enqueue uncached videos for download."""
-    from cinegatto.playlist.fetcher import fetch_playlist
+    from cinegatto.app import refresh_playlist
 
     if not _controller:
         return jsonify({"status": "error", "message": "not ready"}), 503
 
-    # Refresh playlist
+    # Refresh playlist (shared logic with background refresh loop)
     playlist_refreshed = False
     if _playlist_url:
-        try:
-            entries = fetch_playlist(_playlist_url)
-            _controller.update_playlist(entries)
-            if _cache_service:
-                playlist_ids = {e["id"] for e in entries}
-                _cache_service.cleanup(playlist_ids)
-            playlist_refreshed = True
-            logger.info("Playlist synced via API", extra={"count": len(entries)})
-        except Exception as e:
-            logger.warning("Playlist sync failed: %s", e)
+        # Note: refresh_playlist needs direct selector access for update_entries.
+        # This is the one place where the API reaches into controller internals,
+        # justified by the shared helper pattern.
+        playlist_refreshed = refresh_playlist(
+            _playlist_url, _controller._selector, _cache_service)
+        if playlist_refreshed:
+            logger.info("Playlist synced via API")
 
     # Cache sync
     cache_result = {}

@@ -54,13 +54,13 @@ echo "Adding user to video, render, and tty groups..."
 sudo usermod -aG video,render,tty "$USER" 2>/dev/null || true
 sudo chmod g+rw /dev/tty1 2>/dev/null || true
 
-# --- Step 5b: Load i2c-dev for DDC/CI display control (ddcutil) ---
+# --- Step 6: Load i2c-dev for DDC/CI display control (ddcutil) ---
 echo "Configuring I2C for display power control..."
 sudo modprobe i2c-dev 2>/dev/null || true
 echo "i2c-dev" | sudo tee /etc/modules-load.d/i2c-dev.conf > /dev/null
 sudo usermod -aG i2c "$USER" 2>/dev/null || true
 
-# --- Step 6: Disable WiFi power save (persistent) ---
+# --- Step 7: Disable WiFi power save (persistent) ---
 echo "Disabling WiFi power save..."
 sudo mkdir -p /etc/NetworkManager/conf.d
 sudo tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf > /dev/null << 'EOF'
