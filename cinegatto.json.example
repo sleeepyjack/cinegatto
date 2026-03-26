@@ -1,5 +1,5 @@
 {
-  "playlist_url": "https://youtube.com/playlist?list=YOUR_PLAYLIST_ID",
+  "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd",
   "api_port": 8080,
   "log_level": "info",
   "audio": false,
