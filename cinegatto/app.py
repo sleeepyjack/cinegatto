@@ -114,6 +114,10 @@ def run(config_path: str = None) -> None:
 
     logger.info("Starting cinegatto", extra={"config": config})
 
+    # Configure YouTube circuit breaker
+    from cinegatto.youtube_gate import yt_gate
+    yt_gate._cooldown = config.get("yt_cooldown_sec", 600)
+
     # Validate playlist URL
     playlist_url = config["playlist_url"]
     if not playlist_url:

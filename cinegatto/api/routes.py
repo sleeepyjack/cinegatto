@@ -90,8 +90,11 @@ def update_settings():
 def cache():
     if _cache_service is None:
         return jsonify({"enabled": False})
+    from cinegatto.youtube_gate import yt_gate
     stats = _cache_service.get_stats()
     stats["enabled"] = True
+    stats["yt_blocked"] = yt_gate.is_blocked()
+    stats["yt_cooldown_remaining"] = round(yt_gate.time_remaining())
     return jsonify(stats)
 
 

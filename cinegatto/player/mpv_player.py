@@ -83,6 +83,10 @@ class MpvPlayer:
                 # "playback-restart" means mpv resumed decoding (after a seek
                 # or new file load). Safe to clear the seeking flag now.
                 self._seeking = False
+                self._consecutive_errors = 0
+                # Successful playback — reset the YouTube gate
+                from cinegatto.youtube_gate import yt_gate
+                yt_gate.record_success()
 
             self._ipc.on_event("playback-restart", handle_playback_restart)
 
@@ -102,15 +106,20 @@ class MpvPlayer:
                     self._consecutive_errors = 0
                     self._on_video_end()
                 elif reason == "error":
+                    from cinegatto.youtube_gate import yt_gate
                     self._consecutive_errors += 1
+                    yt_gate.record_failure()
                     logger.warning("Video failed to load (attempt %d)",
                                    self._consecutive_errors, extra={"error": error})
                     if not self._running:
                         return
-                    # Use threading.Timer to defer the retry — NEVER sleep on
-                    # the reader thread, as that would block all event dispatch
-                    # and command response routing (see mpv_ipc.py deadlock risk).
-                    if self._consecutive_errors >= 5:
+                    # Check circuit breaker — if tripped, don't retry until cooldown
+                    if yt_gate.is_blocked():
+                        logger.info("YouTube gate blocked, pausing retries for %ds",
+                                    int(yt_gate.time_remaining()))
+                        delay = int(yt_gate.time_remaining()) + 5
+                        self._consecutive_errors = 0
+                    elif self._consecutive_errors >= 5:
                         logger.error("Too many consecutive errors, retrying in 30s")
                         delay = 30
                         self._consecutive_errors = 0

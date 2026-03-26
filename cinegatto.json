@@ -1,15 +1,18 @@
 {
-  "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd&si=X1HvzCU2RMfT6urc",
+  "playlist_url": "https://youtube.com/playlist?list=PLB3-YZ0bGxhkNJpgDdAUIxJYa842fsuMd",
   "api_port": 8080,
   "log_level": "info",
+  "log_file": ".cinegatto.log",
+  "log_ring_size": 10000,
   "audio": false,
   "shuffle": true,
   "random_start": true,
   "mpv_extra_args": [],
   "watchdog_timeout_sec": 10,
-  "log_ring_size": 10000,
   "cache_enabled": true,
   "cache_path": "",
   "cache_disk_usage_pct": 80,
-  "cache_format": "bestvideo[height<=720]+bestaudio/best[height<=720]"
+  "cache_format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+  "playlist_refresh_sec": 1800,
+  "yt_cooldown_sec": 600
 }

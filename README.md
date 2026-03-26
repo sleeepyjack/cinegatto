@@ -107,7 +107,13 @@ All settings live in `cinegatto.json`. Only override what you need — defaults 
 | `cache_disk_usage_pct` | `80` | Max % of disk space for cache |
 | `cache_format` | `bestvideo[height<=1080]...` | yt-dlp format for downloads |
 | `playlist_refresh_sec` | `1800` | Playlist refresh interval (seconds) |
+| `cache_path` | `""` (= `.cache/` in repo) | Cache directory path |
+| `mpv_extra_args` | `[]` | Extra mpv command-line arguments |
+| `watchdog_timeout_sec` | `10` | mpv health check interval (seconds) |
+| `yt_cooldown_sec` | `600` | YouTube circuit breaker cooldown (seconds) |
 | `log_level` | `info` | Logging level (debug for development) |
+| `log_file` | `.cinegatto.log` | Log file path (overwritten each run) |
+| `log_ring_size` | `10000` | Max log entries in web UI viewer |
 
 ## Local Development (macOS)
 

@@ -31,13 +31,14 @@ DEFAULTS = {
     "random_start": True,
     "mpv_extra_args": [],
     "watchdog_timeout_sec": 10,
-    "log_ring_size": 500,
+    "log_ring_size": 10000,
     "log_file": ".cinegatto.log",
     "cache_enabled": True,
     "cache_path": "",
     "cache_disk_usage_pct": 80,
     "playlist_refresh_sec": 1800,
     "cache_format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+    "yt_cooldown_sec": 600,
 }
 
 # Type validators — only check type, not semantic validity (e.g., port range).
@@ -59,6 +60,7 @@ VALIDATORS = {
     "cache_disk_usage_pct": lambda v: isinstance(v, (int, float)),
     "playlist_refresh_sec": lambda v: isinstance(v, (int, float)),
     "cache_format": lambda v: isinstance(v, str),
+    "yt_cooldown_sec": lambda v: isinstance(v, (int, float)),
 }
 
 

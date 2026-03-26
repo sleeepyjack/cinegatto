@@ -278,11 +278,16 @@ class CacheService:
 
     def _download(self, video_id: str, url: str) -> str:
         """Download a video. Returns 'ok', 'fail' (retryable), or 'skip' (permanent)."""
+        from cinegatto.youtube_gate import yt_gate
+
         if not self._running:
             return "skip"
         if self.contains(video_id):
             logger.debug("Already cached, skipping download", extra={"video_id": video_id})
             return "ok"
+        if yt_gate.is_blocked():
+            logger.debug("YouTube gate blocked, deferring download", extra={"video_id": video_id})
+            return "fail"  # retryable later
 
         part_path = os.path.join(self._cache_path, f"{video_id}.part")
         final_path = os.path.join(self._cache_path, f"{video_id}.mp4")
@@ -345,6 +350,7 @@ class CacheService:
                 logger.warning("yt-dlp exited with code %d", returncode,
                                extra={"video_id": video_id, "stderr": stderr})
                 self._cleanup_part_files(video_id)
+                yt_gate.record_failure()
                 return "fail"  # retryable — network/transient error
         except Exception:
             with self._proc_lock:
@@ -389,6 +395,7 @@ class CacheService:
             self._index_dirty = False
             self._downloads_completed += 1
             self._last_error = None  # clear stale error on success
+        yt_gate.record_success()
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
