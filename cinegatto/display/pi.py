@@ -49,10 +49,8 @@ class PiDisplay:
         if not self._dpms_path:
             return
         try:
-            # Needs root to write to sysfs — use tee via sudo
-            subprocess.run(
-                ["sudo", "tee", self._dpms_path],
-                input=state.encode(), stdout=subprocess.DEVNULL, check=True,
-            )
+            # Write directly — udev rule makes this writable for the video group
+            with open(self._dpms_path, "w") as f:
+                f.write(state)
         except Exception:
             logger.exception("Failed to set DPMS to %s", state)

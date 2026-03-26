@@ -54,12 +54,13 @@ echo "Adding user to video, render, and tty groups..."
 sudo usermod -aG video,render,tty "$USER" 2>/dev/null || true
 sudo chmod g+rw /dev/tty1 2>/dev/null || true
 
-# --- Step 5b: Allow passwordless DPMS control for display power ---
+# --- Step 5b: udev rule to make HDMI DPMS writable for video group ---
 echo "Configuring display power permissions..."
-sudo tee /etc/sudoers.d/cinegatto-dpms > /dev/null << EOF
-${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/drm/card*-HDMI-*/dpms
+sudo tee /etc/udev/rules.d/90-cinegatto-dpms.rules > /dev/null << 'EOF'
+SUBSYSTEM=="drm", KERNEL=="card*-HDMI-*", RUN+="/bin/chmod g+w /sys/class/drm/%k/dpms", GROUP="video"
 EOF
-sudo chmod 440 /etc/sudoers.d/cinegatto-dpms
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=drm
 
 # --- Step 6: Disable WiFi power save (persistent) ---
 echo "Disabling WiFi power save..."

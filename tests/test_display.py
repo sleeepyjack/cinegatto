@@ -1,5 +1,4 @@
-import subprocess
-from unittest.mock import patch, call
+from unittest.mock import patch, call, mock_open
 
 from cinegatto.display.noop import NoopDisplay
 from cinegatto.display.pi import PiDisplay
@@ -17,24 +16,18 @@ class TestNoopDisplay:
 
 class TestPiDisplay:
     @patch("cinegatto.display.pi._find_hdmi_dpms", return_value="/sys/class/drm/card1-HDMI-A-1/dpms")
-    @patch("cinegatto.display.pi.subprocess.run")
-    def test_power_on_writes_dpms(self, mock_run, _):
+    @patch("builtins.open", mock_open())
+    def test_power_on_writes_dpms(self, mock_find):
         d = PiDisplay()
         d.power_on()
-        mock_run.assert_called_once_with(
-            ["sudo", "tee", "/sys/class/drm/card1-HDMI-A-1/dpms"],
-            input=b"On", stdout=subprocess.DEVNULL, check=True,
-        )
+        open.assert_called_with("/sys/class/drm/card1-HDMI-A-1/dpms", "w")
 
     @patch("cinegatto.display.pi._find_hdmi_dpms", return_value="/sys/class/drm/card1-HDMI-A-1/dpms")
-    @patch("cinegatto.display.pi.subprocess.run")
-    def test_power_off_writes_dpms(self, mock_run, _):
+    @patch("builtins.open", mock_open())
+    def test_power_off_writes_dpms(self, mock_find):
         d = PiDisplay()
         d.power_off()
-        mock_run.assert_called_once_with(
-            ["sudo", "tee", "/sys/class/drm/card1-HDMI-A-1/dpms"],
-            input=b"Off", stdout=subprocess.DEVNULL, check=True,
-        )
+        open.assert_called_with("/sys/class/drm/card1-HDMI-A-1/dpms", "w")
 
     @patch("cinegatto.display.pi._find_hdmi_dpms", return_value=None)
     def test_no_dpms_path_does_not_raise(self, _):
