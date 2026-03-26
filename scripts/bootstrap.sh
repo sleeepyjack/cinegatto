@@ -3,28 +3,17 @@
 #   curl -sSL https://raw.githubusercontent.com/sleeepyjack/cinegatto/main/scripts/bootstrap.sh | bash
 set -euo pipefail
 
-REPO_URL="https://github.com/sleeepyjack/cinegatto.git"
+REPO_URL="https://github.com/sleeepyjack/cinegatto/archive/refs/heads/main.tar.gz"
 REPO_DIR="$HOME/cinegatto"
 
 echo ""
 echo "=== cinegatto bootstrap ==="
 echo ""
 
-# Ensure git is available
-if ! command -v git &>/dev/null; then
-    echo "Installing git..."
-    sudo apt update -qq
-    sudo apt install -y -qq git
-fi
-
-# Clone or update
-if [ -d "$REPO_DIR/.git" ]; then
-    echo "Updating existing repo..."
-    cd "$REPO_DIR" && git pull
-else
-    echo "Cloning repo..."
-    git clone "$REPO_URL" "$REPO_DIR"
-fi
+# Download and extract (no git needed)
+echo "Downloading cinegatto..."
+mkdir -p "$REPO_DIR"
+curl -sSL "$REPO_URL" | tar xz --strip-components=1 -C "$REPO_DIR"
 
 # Run provisioning
 cd "$REPO_DIR"

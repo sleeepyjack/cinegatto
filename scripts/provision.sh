@@ -11,9 +11,9 @@ SERVICE_NAME="cinegatto"
 echo "=== cinegatto provisioning ==="
 
 # --- Verify repo exists ---
-if [ ! -d "$REPO_DIR/.git" ]; then
-    echo "ERROR: Repo not found at $REPO_DIR."
-    echo "  Run: git clone https://github.com/sleeepyjack/cinegatto.git $REPO_DIR"
+if [ ! -f "$REPO_DIR/requirements.txt" ]; then
+    echo "ERROR: cinegatto not found at $REPO_DIR."
+    echo "  Run bootstrap.sh first, or download manually."
     exit 1
 fi
 
@@ -24,7 +24,7 @@ sudo apt install -y -qq mpv
 
 # --- Step 2: Verify required binaries ---
 echo "Verifying binaries..."
-for cmd in python3 mpv git; do
+for cmd in python3 mpv; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd not found."
         exit 1
