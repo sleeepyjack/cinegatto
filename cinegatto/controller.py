@@ -15,6 +15,7 @@ round-trips; it just enqueues and returns immediately.
 """
 
 import logging
+import os
 import queue
 import random
 import threading
@@ -161,7 +162,8 @@ class PlaybackController:
     def _do_next(self) -> None:
         video = self._pick_cached_or_next()
         if video is None:
-            return  # nothing cached yet, downloads in progress
+            self._show_bootstrap_message()
+            return  # cache service will call on_video_end when a download completes
         logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
         self._load_video(video)
 
@@ -227,6 +229,11 @@ class PlaybackController:
 
         cached_path = self._cache.get(video["id"])
         if cached_path:
+            # Remove bootstrap overlay if it was shown
+            if PlaybackController._bootstrap_shown:
+                from cinegatto.player.qr_overlay import hide_bootstrap_overlay
+                hide_bootstrap_overlay(self._player._ipc)
+                PlaybackController._bootstrap_shown = False
             logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
         else:
@@ -250,3 +257,51 @@ class PlaybackController:
                 logger.debug("Cannot random seek — no duration available")
         except Exception:
             logger.debug("Cannot random seek — player may be idle")
+
+    _bootstrap_image: Optional[str] = None
+    _bootstrap_shown = False
+
+    def _show_bootstrap_message(self) -> None:
+        """Show 'populating cache' overlay centered on screen.
+
+        Loads a 1x1 black PNG to force mpv into DRM video mode (takes over
+        display from tty), then shows a persistent centered overlay with
+        the loading message. Seeking flag suppresses end-file errors.
+        """
+        from cinegatto.player.qr_overlay import show_bootstrap_overlay
+
+        try:
+            # Load black image to activate DRM output (once)
+            if not PlaybackController._bootstrap_shown:
+                if not PlaybackController._bootstrap_image:
+                    import tempfile
+                    from PIL import Image
+                    path = os.path.join(tempfile.gettempdir(), "cinegatto_black.png")
+                    Image.new("RGB", (1, 1), (0, 0, 0)).save(path)
+                    PlaybackController._bootstrap_image = path
+
+                self._player._seeking = True
+                self._player._ipc.command(
+                    "loadfile", PlaybackController._bootstrap_image,
+                    "replace", -1, {"pause": "yes"}
+                )
+                t = threading.Timer(1.0, self._show_bootstrap_overlay_deferred)
+                t.daemon = True
+                t.start()
+                PlaybackController._bootstrap_shown = True
+            else:
+                # Already showing, just refresh the overlay
+                show_bootstrap_overlay(self._player._ipc)
+
+            logger.info("Waiting for cache — bootstrap screen shown")
+        except Exception:
+            logger.debug("Could not show bootstrap message")
+
+    def _show_bootstrap_overlay_deferred(self) -> None:
+        """Show overlay after mpv has loaded the black image (deferred to avoid deadlock)."""
+        from cinegatto.player.qr_overlay import show_bootstrap_overlay
+        self._player._seeking = False
+        try:
+            show_bootstrap_overlay(self._player._ipc)
+        except Exception:
+            pass

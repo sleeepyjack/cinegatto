@@ -56,10 +56,12 @@ _RETRY_DELAYS = [300, 900, 1800]  # 5 min, 15 min, 30 min
 class CacheService:
     """Unified video cache with background downloads."""
 
-    def __init__(self, cache_path: str, format_str: str, disk_usage_pct: float = 80.0):
+    def __init__(self, cache_path: str, format_str: str, disk_usage_pct: float = 80.0,
+                 on_download_complete=None):
         self._cache_path = cache_path
         self._format = format_str
         self._disk_usage_pct = disk_usage_pct
+        self._on_download_complete = on_download_complete
 
         # Protects the index dict, size counter, and hit/miss counters.
         # Held briefly for reads (get) and writes (post-download registration).
@@ -399,6 +401,11 @@ class CacheService:
         logger.info("Download complete", extra={
             "video_id": video_id, "size_mb": file_size // (1024 * 1024),
         })
+        if self._on_download_complete:
+            try:
+                self._on_download_complete(video_id)
+            except Exception:
+                logger.debug("on_download_complete callback failed")
         return "ok"
 
     # --- Eviction ---

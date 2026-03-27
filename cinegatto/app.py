@@ -180,9 +180,15 @@ def run(config_path: str = None) -> None:
             if not cache_path:
                 cache_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache")
             cache_path = os.path.expanduser(cache_path)
+            def on_download_complete(video_id):
+                if controller_ref[0]:
+                    logger.info("Video cached, triggering playback", extra={"video_id": video_id})
+                    controller_ref[0].on_video_end()
+
             cache_service = CacheService(
                 cache_path, config["cache_format"],
                 disk_usage_pct=config["cache_disk_usage_pct"],
+                on_download_complete=on_download_complete,
             )
             cache_service.start()
         except Exception:

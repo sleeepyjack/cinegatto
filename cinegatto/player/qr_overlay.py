@@ -232,3 +232,68 @@ def apply_overlays(ipc, url):
 
     ipc.on_event("playback-restart", _on_playback_restart)
     logger.info("Overlay images generated, will position on playback start")
+
+
+def show_bootstrap_overlay(ipc, screen_width=1920, screen_height=1080):
+    """Show a centered 'populating cache' message as overlay ID 2.
+
+    Uses a rendered image so positioning is precise and it doesn't
+    disappear like show-text does. Call hide_bootstrap_overlay() to remove.
+    """
+    text = "Populating cache\n(this may take a few minutes)"
+    font = _find_mono_font(28)
+
+    tmp = Image.new("RGBA", (1, 1))
+    d = ImageDraw.Draw(tmp)
+    bbox = d.multiline_textbbox((0, 0), text, font=font, align="center")
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    # Add a spinning-style unicode character
+    spinner = "\u23F3"  # hourglass ⏳
+    spinner_font = _find_mono_font(40)
+    sbbox = d.textbbox((0, 0), spinner, font=spinner_font)
+    sw = sbbox[2] - sbbox[0]
+    sh = sbbox[3] - sbbox[1]
+
+    pad = 30
+    gap = 16
+    total_w = max(tw, sw) + pad * 2
+    total_h = sh + gap + th + pad * 2
+
+    img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 180))
+    draw = ImageDraw.Draw(img)
+
+    y = pad
+    # Center hourglass
+    draw.text(((total_w - sw) // 2, y), spinner, font=spinner_font, fill=(160, 160, 255, 230))
+    y += sh + gap
+    # Center text
+    draw.multiline_text(((total_w - tw) // 2, y), text, font=font,
+                        fill=(200, 200, 200, 230), align="center")
+
+    path, w, h = _rgba_to_bgra_file(img)
+
+    # Try to read actual screen size
+    try:
+        osd_w = ipc.get_property("osd-width") or screen_width
+        osd_h = ipc.get_property("osd-height") or screen_height
+    except Exception:
+        osd_w, osd_h = screen_width, screen_height
+
+    x = (osd_w - w) // 2
+    y = (osd_h - h) // 2
+
+    try:
+        ipc.command("overlay-add", 2, x, y, path, 0, "bgra", w, h, w * 4)
+        logger.info("Bootstrap overlay shown")
+    except Exception:
+        logger.debug("Could not show bootstrap overlay")
+
+
+def hide_bootstrap_overlay(ipc):
+    """Remove the bootstrap overlay (ID 2)."""
+    try:
+        ipc.command("overlay-remove", 2)
+        logger.debug("Bootstrap overlay removed")
+    except Exception:
+        pass
