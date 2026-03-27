@@ -116,8 +116,8 @@ class TestCacheIntegration:
         finally:
             controller.stop()
 
-    def test_cache_miss_streams_as_bootstrap(self, tmp_path):
-        """Cache miss with no cached alternatives: streams as first-run bootstrap."""
+    def test_cache_miss_waits_for_downloads(self, tmp_path):
+        """Cache miss with no cached alternatives: waits, queues download, nothing plays."""
         player = MagicMock()
         player.get_state.return_value = PlayerState()
         entries = [
@@ -138,10 +138,8 @@ class TestCacheIntegration:
         try:
             controller.next_video()
             controller._queue.join()
-            # No cached videos — streams as bootstrap
-            player.load_video.assert_called_once()
-            loaded_url = player.load_video.call_args[0][0]
-            assert "youtube.com" in loaded_url
+            # No cached videos — nothing plays, waits for downloads
+            player.load_video.assert_not_called()
             # Download should be queued
             assert cache.warm.called
         finally:

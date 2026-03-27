@@ -201,8 +201,8 @@ class TestPlaybackController:
         finally:
             ctrl.stop()
 
-    def test_pick_cached_or_next_empty_cache_streams(self):
-        """Empty cache falls back to streaming (bootstrap)."""
+    def test_pick_cached_or_next_empty_cache_waits(self):
+        """Empty cache waits for downloads, nothing plays."""
         player = MagicMock()
         player.get_state.return_value = PlayerState()
         selector = MagicMock()
@@ -218,9 +218,8 @@ class TestPlaybackController:
         try:
             ctrl.next_video()
             ctrl._queue.join()
-            player.load_video.assert_called_once()
-            url = player.load_video.call_args[0][0]
-            assert "youtube.com" in url  # streamed, not cached
+            player.load_video.assert_not_called()  # nothing to play
+            cache.warm.assert_called()  # but download queued
         finally:
             ctrl.stop()
 

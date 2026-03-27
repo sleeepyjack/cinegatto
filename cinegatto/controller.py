@@ -160,10 +160,12 @@ class PlaybackController:
 
     def _do_next(self) -> None:
         video = self._pick_cached_or_next()
+        if video is None:
+            return  # nothing cached yet, downloads in progress
         logger.info("Playing next video", extra={"video_id": video["id"], "title": video["title"]})
         self._load_video(video)
 
-    def _pick_cached_or_next(self) -> dict:
+    def _pick_cached_or_next(self) -> Optional[dict]:
         """Pick next video, preferring cached ones.
 
         Tries the selector's pick first. If uncached, scans for any cached
@@ -193,10 +195,9 @@ class PlaybackController:
                         extra={"video_id": fallback["id"], "original": video["id"]})
             return fallback
 
-        # Nothing cached at all — stream this one to bootstrap the first-run experience.
-        # Once at least one video finishes downloading, cache-only mode kicks in.
-        logger.info("No cached videos yet — streaming to bootstrap", extra={"video_id": video["id"]})
-        return video
+        # Nothing cached — queue downloads and wait. Don't stream (too slow on Pi for long videos).
+        logger.info("No cached videos yet — waiting for downloads", extra={"video_id": video["id"]})
+        return None
 
     def _do_previous(self) -> None:
         video = self._selector.previous()
@@ -219,16 +220,17 @@ class PlaybackController:
             start_percent = random.uniform(0, 80.0)
             logger.debug("Random start", extra={"start_percent": round(start_percent, 1)})
 
-        cached_path = self._cache.get(video["id"]) if self._cache else None
+        if not self._cache:
+            # No cache service — play URL directly (dev/macOS mode)
+            self._player.load_video(video["url"], start_percent=start_percent)
+            return
 
+        cached_path = self._cache.get(video["id"])
         if cached_path:
             logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
         else:
-            # No cache or not cached — shouldn't happen if _pick_cached_or_next works,
-            # but fall back to streaming as a safety net
-            logger.info("Cache MISS — streaming", extra={"video_id": video["id"]})
-            self._player.load_video(video["url"], start_percent=start_percent)
+            logger.warning("Video not cached, skipping", extra={"video_id": video["id"]})
 
         # Always request caching (service handles dedup/queue)
         if self._cache:
