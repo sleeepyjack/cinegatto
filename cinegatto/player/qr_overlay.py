@@ -189,11 +189,24 @@ def _generate_art_overlay():
     return img
 
 
+_bootstrap_active = False
+
+
+def set_bootstrap_active(active):
+    """Enable/disable bootstrap overlay on playback-restart."""
+    global _bootstrap_active
+    _bootstrap_active = active
+
+
 def apply_overlays(ipc, url):
     """Apply ASCII art (left) and QR code (right) overlays.
 
     Images are generated once. Position is recalculated each time a video
     starts playing (playback-restart event), when osd-width is accurate.
+
+    If _bootstrap_active is set, the centered bootstrap overlay is also
+    shown from the same handler — this ensures it's added while mpv is
+    actively rendering (required for DRM overlay compositing).
     """
     import threading
 
@@ -223,6 +236,15 @@ def apply_overlays(ipc, url):
         except Exception:
             logger.exception("Could not apply overlays")
 
+        # Show bootstrap overlay from the same rendering context as corner overlays,
+        # then pause to keep the image on screen without looping.
+        if _bootstrap_active:
+            try:
+                show_bootstrap_overlay(ipc)
+                ipc.set_property("pause", True)
+            except Exception:
+                logger.exception("Could not show bootstrap overlay in playback-restart")
+
     # Reposition when a video starts. The callback runs on the IPC reader thread,
     # but _position_overlays makes IPC calls (get_property, overlay-add).
     # Calling IPC from the reader thread would deadlock, so we spawn a thread.
@@ -240,7 +262,7 @@ def show_bootstrap_overlay(ipc, screen_width=1920, screen_height=1080):
     Uses a rendered image so positioning is precise and it doesn't
     disappear like show-text does. Call hide_bootstrap_overlay() to remove.
     """
-    text = "Populating cache\n(this may take a few minutes)"
+    text = "Populating cache\n(this may take some time)"
     font = _find_mono_font(28)
 
     tmp = Image.new("RGBA", (1, 1))
@@ -248,27 +270,15 @@ def show_bootstrap_overlay(ipc, screen_width=1920, screen_height=1080):
     bbox = d.multiline_textbbox((0, 0), text, font=font, align="center")
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    # Add a spinning-style unicode character
-    spinner = "\u23F3"  # hourglass ⏳
-    spinner_font = _find_mono_font(40)
-    sbbox = d.textbbox((0, 0), spinner, font=spinner_font)
-    sw = sbbox[2] - sbbox[0]
-    sh = sbbox[3] - sbbox[1]
-
     pad = 30
-    gap = 16
-    total_w = max(tw, sw) + pad * 2
-    total_h = sh + gap + th + pad * 2
+    total_w = int(tw + pad * 2)
+    total_h = int(th + pad * 2)
 
     img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 180))
     draw = ImageDraw.Draw(img)
 
-    y = pad
-    # Center hourglass
-    draw.text(((total_w - sw) // 2, y), spinner, font=spinner_font, fill=(160, 160, 255, 230))
-    y += sh + gap
     # Center text
-    draw.multiline_text(((total_w - tw) // 2, y), text, font=font,
+    draw.multiline_text((pad, pad), text, font=font,
                         fill=(200, 200, 200, 230), align="center")
 
     path, w, h = _rgba_to_bgra_file(img)
@@ -287,7 +297,7 @@ def show_bootstrap_overlay(ipc, screen_width=1920, screen_height=1080):
         ipc.command("overlay-add", 2, x, y, path, 0, "bgra", w, h, w * 4)
         logger.info("Bootstrap overlay shown")
     except Exception:
-        logger.debug("Could not show bootstrap overlay")
+        logger.exception("Could not show bootstrap overlay")
 
 
 def hide_bootstrap_overlay(ipc):

@@ -265,8 +265,18 @@ class CacheService:
                 with self._queued_lock:
                     self._queued_ids.discard(video_id)
                 self._download_queue.task_done()
+            # Gate-blocked: re-queue after cooldown without consuming a retry
+            if result == "blocked" and self._running:
+                from cinegatto.youtube_gate import yt_gate
+                delay = max(yt_gate.time_remaining() + 5, 10)
+                logger.debug("Will retry after gate clears in %ds",
+                             int(delay), extra={"video_id": video_id})
+                t = threading.Timer(delay, self._enqueue_retry,
+                                    args=(video_id, url, retry_count))
+                t.daemon = True
+                t.start()
             # Retry only transient failures, not permanent ones (e.g., too large for cache)
-            if result == "fail" and self._running and retry_count < _MAX_RETRIES:
+            elif result == "fail" and self._running and retry_count < _MAX_RETRIES:
                 delay = _RETRY_DELAYS[retry_count]
                 logger.debug("Will retry download in %ds",
                              delay, extra={"video_id": video_id, "retry": retry_count + 1})
@@ -289,7 +299,7 @@ class CacheService:
             return "ok"
         if yt_gate.is_blocked():
             logger.debug("YouTube gate blocked, deferring download", extra={"video_id": video_id})
-            return "fail"  # retryable later
+            return "blocked"
 
         part_path = os.path.join(self._cache_path, f"{video_id}.part")
         final_path = os.path.join(self._cache_path, f"{video_id}.mp4")

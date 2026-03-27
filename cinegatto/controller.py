@@ -229,13 +229,17 @@ class PlaybackController:
 
         cached_path = self._cache.get(video["id"])
         if cached_path:
-            # Remove bootstrap overlay if it was shown
-            if PlaybackController._bootstrap_shown:
-                from cinegatto.player.qr_overlay import hide_bootstrap_overlay
+            # Remove bootstrap overlay and unpause if we were in bootstrap mode
+            was_bootstrap = PlaybackController._bootstrap_shown
+            if was_bootstrap:
+                from cinegatto.player.qr_overlay import hide_bootstrap_overlay, set_bootstrap_active
+                set_bootstrap_active(False)
                 hide_bootstrap_overlay(self._player._ipc)
                 PlaybackController._bootstrap_shown = False
             logger.info("Cache HIT", extra={"video_id": video["id"]})
             self._player.load_video(cached_path, start_percent=start_percent)
+            if was_bootstrap:
+                self._player._ipc.set_property("pause", False)
         else:
             logger.warning("Video not cached, skipping", extra={"video_id": video["id"]})
 
@@ -264,44 +268,29 @@ class PlaybackController:
     def _show_bootstrap_message(self) -> None:
         """Show 'populating cache' overlay centered on screen.
 
-        Loads a 1x1 black PNG to force mpv into DRM video mode (takes over
-        display from tty), then shows a persistent centered overlay with
-        the loading message. Seeking flag suppresses end-file errors.
+        Loads a 1x1 black PNG with loop-file=inf to force mpv into DRM
+        video mode and keep it rendering. The bootstrap overlay is shown
+        by the same playback-restart handler that positions corner overlays
+        — this ensures it's added while mpv is actively compositing
+        (required for DRM overlay visibility).
         """
-        from cinegatto.player.qr_overlay import show_bootstrap_overlay
-
         try:
-            # Load black image to activate DRM output (once)
+            if not PlaybackController._bootstrap_image:
+                import tempfile
+                from PIL import Image
+                path = os.path.join(tempfile.gettempdir(), "cinegatto_black.png")
+                Image.new("RGB", (1, 1), (0, 0, 0)).save(path)
+                PlaybackController._bootstrap_image = path
+
             if not PlaybackController._bootstrap_shown:
-                if not PlaybackController._bootstrap_image:
-                    import tempfile
-                    from PIL import Image
-                    path = os.path.join(tempfile.gettempdir(), "cinegatto_black.png")
-                    Image.new("RGB", (1, 1), (0, 0, 0)).save(path)
-                    PlaybackController._bootstrap_image = path
+                from cinegatto.player.qr_overlay import set_bootstrap_active
+                set_bootstrap_active(True)
 
-                self._player._seeking = True
-                self._player._ipc.command(
-                    "loadfile", PlaybackController._bootstrap_image,
-                    "replace", -1, {"pause": "yes"}
-                )
-                t = threading.Timer(1.0, self._show_bootstrap_overlay_deferred)
-                t.daemon = True
-                t.start()
-                PlaybackController._bootstrap_shown = True
-            else:
-                # Already showing, just refresh the overlay
-                show_bootstrap_overlay(self._player._ipc)
-
+            self._player._seeking = True
+            self._player._ipc.command(
+                "loadfile", PlaybackController._bootstrap_image, "replace"
+            )
+            PlaybackController._bootstrap_shown = True
             logger.info("Waiting for cache — bootstrap screen shown")
         except Exception:
-            logger.debug("Could not show bootstrap message")
-
-    def _show_bootstrap_overlay_deferred(self) -> None:
-        """Show overlay after mpv has loaded the black image (deferred to avoid deadlock)."""
-        from cinegatto.player.qr_overlay import show_bootstrap_overlay
-        self._player._seeking = False
-        try:
-            show_bootstrap_overlay(self._player._ipc)
-        except Exception:
-            pass
+            logger.exception("Could not show bootstrap message")

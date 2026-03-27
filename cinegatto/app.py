@@ -275,13 +275,14 @@ def _standby_until_playlist(playlist_url: str, display) -> list[dict]:
 
 
 def refresh_playlist(playlist_url: str, selector: Selector, cache_service=None) -> bool:
-    """Fetch playlist from YouTube, update selector, clean cache. Returns True on success."""
+    """Fetch playlist from YouTube, update selector, warm cache. Returns True on success."""
     try:
         entries = fetch_playlist(playlist_url)
         selector.update_entries(entries)
         if cache_service:
             playlist_ids = {e["id"] for e in entries}
             cache_service.cleanup(playlist_ids)
+            cache_service.warm_all(entries)
         return True
     except Exception as e:
         logger.warning("Playlist refresh failed: %s", e)
