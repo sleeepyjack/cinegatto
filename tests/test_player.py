@@ -141,6 +141,16 @@ class TestMpvIpc:
         result = resp_queue.get(timeout=1)
         assert isinstance(result, MpvIpcError)
 
+    def test_event_dispatch_continues_on_callback_error(self):
+        """If one callback raises, the next still runs."""
+        ipc = MpvIpc.__new__(MpvIpc)
+        ipc._event_callbacks = {}
+        results = []
+        ipc.on_event("test", lambda e: 1/0)  # raises
+        ipc.on_event("test", lambda e: results.append("ok"))
+        ipc._dispatch_event({"event": "test"})
+        assert results == ["ok"]
+
 
 # --- MpvPlayer tests (mock IPC and subprocess) ---
 

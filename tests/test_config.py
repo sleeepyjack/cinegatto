@@ -67,3 +67,27 @@ class TestLoadConfig:
         config["api_port"] = 9999
         config2 = load_config()
         assert config2["api_port"] == 8080
+
+    def test_api_port_out_of_range(self, tmp_path):
+        cfg = tmp_path / "cinegatto.json"
+        cfg.write_text(json.dumps({"api_port": 70000}))
+        with pytest.raises(ConfigError, match="api_port"):
+            load_config(config_path=str(cfg))
+
+    def test_api_port_zero(self, tmp_path):
+        cfg = tmp_path / "cinegatto.json"
+        cfg.write_text(json.dumps({"api_port": 0}))
+        with pytest.raises(ConfigError, match="api_port"):
+            load_config(config_path=str(cfg))
+
+    def test_playlist_refresh_too_small(self, tmp_path):
+        cfg = tmp_path / "cinegatto.json"
+        cfg.write_text(json.dumps({"playlist_refresh_sec": 5}))
+        with pytest.raises(ConfigError, match="playlist_refresh_sec"):
+            load_config(config_path=str(cfg))
+
+    def test_cache_disk_usage_pct_out_of_range(self, tmp_path):
+        cfg = tmp_path / "cinegatto.json"
+        cfg.write_text(json.dumps({"cache_disk_usage_pct": 100}))
+        with pytest.raises(ConfigError, match="cache_disk_usage_pct"):
+            load_config(config_path=str(cfg))

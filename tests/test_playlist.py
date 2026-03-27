@@ -117,6 +117,35 @@ class TestSelector:
         result.append({"id": "extra"})
         assert len(selector.get_all_entries()) == 5
 
+    def test_shuffle_single_item_stable(self):
+        entries = self._sample_entries(1)
+        selector = Selector(entries, shuffle=True)
+        for _ in range(5):
+            assert selector.pick() == entries[0]
+
+    def test_previous_rewinds_sequential_index(self):
+        entries = self._sample_entries(3)
+        selector = Selector(entries, shuffle=False)
+        selector.pick()  # vid0, index=1
+        selector.pick()  # vid1, index=2
+        selector.previous()  # back to vid0, index should rewind
+        pick = selector.pick()
+        assert pick == entries[1]  # replays vid1
+
+    def test_update_entries_empty_then_pick_raises(self):
+        entries = self._sample_entries(3)
+        selector = Selector(entries)
+        selector.update_entries([])
+        with pytest.raises(ValueError, match="empty"):
+            selector.pick()
+
+    def test_get_current_index_none_after_removal(self):
+        entries = self._sample_entries(3)
+        selector = Selector(entries, shuffle=False)
+        selector.pick()  # vid0
+        selector.update_entries(self._sample_entries(3)[1:])  # remove vid0
+        assert selector.get_current_index() is None
+
 
 class TestFetchPlaylist:
     @patch("cinegatto.playlist.fetcher.yt_dlp.YoutubeDL")

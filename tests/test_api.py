@@ -141,3 +141,39 @@ class TestSettingsEndpoint:
                        json={"random_start": False})
         assert resp.status_code == 200
         controller.set_random_start.assert_called_once_with(False)
+
+
+class TestSettingsValidation:
+    def test_rejects_non_bool_shuffle(self, client):
+        c, controller, _ = client
+        resp = c.post("/api/settings", json={"shuffle": "false"})
+        assert resp.status_code == 400
+
+    def test_rejects_non_bool_random_start(self, client):
+        c, controller, _ = client
+        resp = c.post("/api/settings", json={"random_start": 0})
+        assert resp.status_code == 400
+
+
+class TestSyncNotReady:
+    def test_returns_503(self):
+        from cinegatto.api.routes import api, init_api
+        from flask import Flask
+        app = Flask(__name__)
+        init_api(None)  # no controller
+        app.register_blueprint(api)
+        c = app.test_client()
+        resp = c.post("/api/sync")
+        assert resp.status_code == 503
+
+
+class TestCacheDisabled:
+    def test_returns_disabled(self):
+        from cinegatto.api.routes import api, init_api
+        from flask import Flask
+        app = Flask(__name__)
+        init_api(MagicMock(), cache_service=None)
+        app.register_blueprint(api)
+        c = app.test_client()
+        resp = c.get("/api/cache")
+        assert resp.get_json()["enabled"] is False

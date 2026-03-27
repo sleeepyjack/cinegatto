@@ -200,3 +200,97 @@ class TestPlaybackController:
             assert ctrl.get_settings()["random_start"] is False
         finally:
             ctrl.stop()
+
+    def test_pick_cached_or_next_empty_cache_streams(self):
+        """Empty cache falls back to streaming (bootstrap)."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        selector = MagicMock()
+        selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
+        selector.get_all_entries.return_value = [{"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}]
+        selector.peek_next.return_value = []
+        cache = MagicMock()
+        cache.contains.return_value = False
+        cache.get.return_value = None
+        ctrl = PlaybackController(player=player, selector=selector, display=MagicMock(),
+                                  random_start=False, cache_service=cache)
+        ctrl.start()
+        try:
+            ctrl.next_video()
+            ctrl._queue.join()
+            player.load_video.assert_called_once()
+            url = player.load_video.call_args[0][0]
+            assert "youtube.com" in url  # streamed, not cached
+        finally:
+            ctrl.stop()
+
+    def test_pick_cached_or_next_fallback_to_cached(self):
+        """Uncached pick falls back to a cached video."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        selector = MagicMock()
+        selector.pick.return_value = {"id": "uncached", "title": "New", "url": "https://youtube.com/watch?v=uncached"}
+        selector.get_all_entries.return_value = [
+            {"id": "uncached", "title": "New", "url": "https://youtube.com/watch?v=uncached"},
+            {"id": "cached", "title": "Old", "url": "https://youtube.com/watch?v=cached"},
+        ]
+        selector.peek_next.return_value = []
+        cache = MagicMock()
+        cache.contains.side_effect = lambda vid: vid == "cached"
+        cache.get.side_effect = lambda vid: "/fake/cached.mp4" if vid == "cached" else None
+        ctrl = PlaybackController(player=player, selector=selector, display=MagicMock(),
+                                  random_start=False, cache_service=cache)
+        ctrl.start()
+        try:
+            ctrl.next_video()
+            ctrl._queue.join()
+            player.load_video.assert_called_once()
+            path = player.load_video.call_args[0][0]
+            assert path == "/fake/cached.mp4"
+        finally:
+            ctrl.stop()
+
+    def test_pick_cached_or_next_no_cache_service(self):
+        """Without cache service, plays whatever selector picks."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState()
+        selector = MagicMock()
+        selector.pick.return_value = {"id": "abc", "title": "Birds", "url": "https://youtube.com/watch?v=abc"}
+        selector.peek_next.return_value = []
+        ctrl = PlaybackController(player=player, selector=selector, display=MagicMock(),
+                                  random_start=False, cache_service=None)
+        ctrl.start()
+        try:
+            ctrl.next_video()
+            ctrl._queue.join()
+            player.load_video.assert_called_once()
+        finally:
+            ctrl.stop()
+
+    def test_random_seek_noop_without_duration(self):
+        """Random seek does nothing when duration is 0."""
+        player = MagicMock()
+        player.get_state.return_value = PlayerState(duration=0)
+        ctrl = PlaybackController(player=player, selector=MagicMock(), display=MagicMock())
+        ctrl.start()
+        try:
+            ctrl.random_seek()
+            ctrl._queue.join()
+            player.seek.assert_not_called()
+        finally:
+            ctrl.stop()
+
+    def test_random_seek_handles_player_error(self):
+        """Random seek swallows player exceptions."""
+        player = MagicMock()
+        player.get_state.side_effect = Exception("player dead")
+        ctrl = PlaybackController(player=player, selector=MagicMock(), display=MagicMock())
+        ctrl.start()
+        try:
+            ctrl.random_seek()
+            ctrl._queue.join()
+            # Should not crash the worker thread
+            ctrl.play()
+            ctrl._queue.join()
+        finally:
+            ctrl.stop()

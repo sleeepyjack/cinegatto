@@ -73,3 +73,22 @@ class TestRingBufferHandler:
         assert len(entries) == 2
         assert entries[0]["message"] == "mid"
         assert entries[1]["message"] == "new"
+
+    def test_get_entries_returns_tail_not_head(self):
+        handler = RingBufferHandler(max_size=100)
+        logger = logging.getLogger("test.tail")
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        for i in range(20):
+            logger.info(f"msg {i}")
+        entries = handler.get_entries(limit=5)
+        assert len(entries) == 5
+        assert entries[0]["message"] == "msg 15"
+        assert entries[4]["message"] == "msg 19"
+
+    def test_setup_logging_idempotent(self):
+        setup_logging(level="debug", ring_size=100)
+        setup_logging(level="debug", ring_size=100)
+        logger = logging.getLogger("cinegatto")
+        # Should have exactly 3 handlers (console, file, ring) not 6
+        assert len(logger.handlers) == 3
