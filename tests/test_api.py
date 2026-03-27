@@ -180,17 +180,28 @@ class TestCacheDisabled:
 
 
 class TestLogsLimitCapped:
-    def test_limit_capped_at_500(self, client):
-        c, _, ring = client
+    def test_limit_capped_at_500(self):
+        """Even if ring has >500 entries, API caps at 500."""
+        from cinegatto.api.routes import api, init_api
+        from cinegatto.log import RingBufferHandler
+        from flask import Flask
         import logging
+
+        app = Flask(__name__)
+        ring = RingBufferHandler(max_size=1000)
+        init_api(MagicMock(), ring_handler=ring)
+        app.register_blueprint(api)
+
         logger = logging.getLogger("test.api.logs.cap")
         logger.addHandler(ring)
         logger.setLevel(logging.DEBUG)
         for i in range(600):
             logger.info(f"msg {i}")
+
+        c = app.test_client()
         resp = c.get("/api/logs?limit=9999")
         data = resp.get_json()
-        assert len(data["entries"]) <= 500
+        assert len(data["entries"]) == 500
 
 
 class TestSettingsIncludesPlaylistUrl:

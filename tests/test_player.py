@@ -375,3 +375,26 @@ class TestMpvPlayerEvents:
         player._seeking = True
         handlers["playback-restart"][0]({"event": "playback-restart"})
         assert player._seeking is False
+
+    def test_end_file_error_uses_gate_cooldown_delay(self):
+        """When yt_gate is blocked, retry delay uses gate cooldown time."""
+        from unittest.mock import patch
+        from cinegatto.youtube_gate import YouTubeGate
+        gate = YouTubeGate(threshold=1, cooldown_sec=300)
+        gate.record_failure()  # trip the gate
+
+        timer_delays = []
+        def mock_timer(delay, fn):
+            timer_delays.append(delay)
+            t = MagicMock()
+            t.daemon = True
+            return t
+
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: None)
+        with patch("cinegatto.player.mpv_player.threading.Timer", side_effect=mock_timer):
+            with patch("cinegatto.youtube_gate.yt_gate", gate):
+                handlers["end-file"][0]({"event": "end-file", "reason": "error", "file_error": "blocked"})
+
+        assert len(timer_delays) == 1
+        # Delay should be based on gate cooldown (~300s + 5), not the normal 2s
+        assert timer_delays[0] > 100

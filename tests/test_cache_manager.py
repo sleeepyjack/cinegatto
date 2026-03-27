@@ -266,6 +266,54 @@ class TestCacheService:
         finally:
             svc.stop()
 
+    def test_last_error_lifecycle(self, tmp_path):
+        """Failed download sets last_error; successful download clears it."""
+        svc = self._make_service(tmp_path)
+        # Simulate a failure
+        with svc._lock:
+            svc._last_error = {"video_id": "failed", "exit_code": 1, "stderr": "boom"}
+            svc._downloads_failed += 1
+        assert svc.get_stats()["last_error"] is not None
+        # Simulate a success clearing it
+        with svc._lock:
+            svc._downloads_completed += 1
+            svc._last_error = None
+        assert svc.get_stats()["last_error"] is None
+
+    def test_retry_scheduled_for_fail_not_skip(self, tmp_path):
+        """Worker schedules retry Timer for 'fail' but not 'skip'."""
+        from unittest.mock import patch
+        import threading
+        svc = self._make_service(tmp_path)
+
+        timer_calls = []
+        original_timer = threading.Timer
+        def mock_timer(delay, fn, args=(), kwargs=None):
+            timer_calls.append({"delay": delay, "args": args})
+            t = original_timer(9999, lambda: None)  # never fires
+            t.daemon = True
+            return t
+
+        # Test "fail" → retry scheduled
+        svc._download = lambda vid, url: "fail"
+        svc.start()
+        try:
+            with patch("cinegatto.cache.service.threading.Timer", side_effect=mock_timer):
+                svc.warm("vid_fail", "https://youtube.com/watch?v=vid_fail")
+                import time
+                time.sleep(0.5)
+            assert len(timer_calls) == 1  # retry was scheduled
+
+            # Test "skip" → no retry
+            timer_calls.clear()
+            svc._download = lambda vid, url: "skip"
+            with patch("cinegatto.cache.service.threading.Timer", side_effect=mock_timer):
+                svc.warm("vid_skip", "https://youtube.com/watch?v=vid_skip")
+                time.sleep(0.5)
+            assert len(timer_calls) == 0  # no retry
+        finally:
+            svc.stop()
+
     def test_start_and_stop(self, tmp_path):
         svc = self._make_service(tmp_path)
         svc.start()

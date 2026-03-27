@@ -91,3 +91,9 @@ class TestLoadConfig:
         cfg.write_text(json.dumps({"cache_disk_usage_pct": 100}))
         with pytest.raises(ConfigError, match="cache_disk_usage_pct"):
             load_config(config_path=str(cfg))
+
+    def test_watchdog_timeout_sec_too_small(self, tmp_path):
+        cfg = tmp_path / "cinegatto.json"
+        cfg.write_text(json.dumps({"watchdog_timeout_sec": 0}))
+        with pytest.raises(ConfigError, match="watchdog_timeout_sec"):
+            load_config(config_path=str(cfg))
