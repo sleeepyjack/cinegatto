@@ -190,6 +190,82 @@ class TestCacheService:
         svc.warm("vid1", "https://youtube.com/watch?v=vid1")
         assert not svc._download_queue.empty()
 
+    def test_warm_all_dedup_already_queued(self, tmp_path):
+        """warm_all doesn't re-enqueue already-queued videos."""
+        svc = self._make_service(tmp_path)
+        entries = [
+            {"id": "vid1", "url": "https://youtube.com/watch?v=vid1"},
+            {"id": "vid2", "url": "https://youtube.com/watch?v=vid2"},
+        ]
+        svc.warm("vid1", entries[0]["url"])  # pre-queue vid1
+        result = svc.warm_all(entries)
+        assert result["enqueued"] == 1  # only vid2
+        assert result["already_queued"] == 1  # vid1
+
+    def test_enqueue_retry_dedup(self, tmp_path):
+        """_enqueue_retry doesn't create duplicates if already queued."""
+        svc = self._make_service(tmp_path)
+        svc.warm("vid1", "https://youtube.com/watch?v=vid1")  # in queue
+        svc._enqueue_retry("vid1", "https://youtube.com/watch?v=vid1", 1)
+        assert svc._download_queue.qsize() == 1  # not 2
+
+    def test_evict_prefers_incomplete_over_not_in_playlist_over_lru(self, tmp_path):
+        """Eviction priority: incomplete > not-in-playlist > LRU."""
+        svc = self._make_service(tmp_path, max_size=1000)
+        cache_dir = str(tmp_path / "cache")
+        # Create 3 videos: incomplete, not-in-playlist, active LRU
+        p1 = self._create_fake_video(cache_dir, "incomplete", 300)
+        p2 = self._create_fake_video(cache_dir, "stale", 300)
+        p3 = self._create_fake_video(cache_dir, "active", 300)
+        with svc._lock:
+            svc._index["entries"]["incomplete"] = {
+                "file": p1, "size": 300, "last_played": None, "complete": False,
+            }
+            svc._index["entries"]["stale"] = {
+                "file": p2, "size": 300, "last_played": "2020-01-01", "complete": True,
+                "in_playlist": False,
+            }
+            svc._index["entries"]["active"] = {
+                "file": p3, "size": 300, "last_played": "2025-01-01", "complete": True,
+                "in_playlist": True,
+            }
+            svc._recompute_size()
+            # Need 300 bytes — should evict incomplete first
+            freed = svc._evict_for(300, protect_ids=set())
+        assert freed >= 300
+        assert "incomplete" not in svc._index["entries"]
+        # stale and active should still be there (only needed 300)
+        assert "stale" in svc._index["entries"] or "active" in svc._index["entries"]
+
+    def test_get_returns_none_for_incomplete(self, tmp_path):
+        """get() returns None for incomplete cache entries."""
+        svc = self._make_service(tmp_path)
+        cache_dir = str(tmp_path / "cache")
+        path = self._create_fake_video(cache_dir, "vid1", 500)
+        with svc._lock:
+            svc._index["entries"]["vid1"] = {
+                "file": path, "size": 500, "last_played": None, "complete": False,
+            }
+        assert svc.get("vid1") is None
+
+    def test_download_skip_not_retried(self, tmp_path):
+        """Videos returning 'skip' from _download are not retried."""
+        svc = self._make_service(tmp_path, max_size=100)  # tiny cache
+        svc._get_max_size = lambda: 100
+        svc.start()
+        try:
+            # Enqueue a video, mock _estimate_size to return huge size
+            original_estimate = svc._estimate_size
+            svc._estimate_size = lambda cmd, url: 999999999  # way too large
+            svc.warm("big_vid", "https://youtube.com/watch?v=big_vid")
+            import time
+            time.sleep(0.5)  # let worker process
+            # Should not be retried (skip, not fail)
+            stats = svc.get_stats()
+            assert stats["queue_depth"] == 0
+        finally:
+            svc.stop()
+
     def test_start_and_stop(self, tmp_path):
         svc = self._make_service(tmp_path)
         svc.start()

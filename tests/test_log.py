@@ -86,6 +86,17 @@ class TestRingBufferHandler:
         assert entries[0]["message"] == "msg 15"
         assert entries[4]["message"] == "msg 19"
 
+    def test_unknown_level_defaults_to_debug(self):
+        handler = RingBufferHandler(max_size=10)
+        logger = logging.getLogger("test.unknown_level")
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        logger.debug("debug msg")
+        logger.info("info msg")
+        # Filtering by a bogus level should fall back to DEBUG (returns all)
+        entries = handler.get_entries(level="BOGUS")
+        assert len(entries) == 2
+
     def test_setup_logging_idempotent(self):
         setup_logging(level="debug", ring_size=100)
         setup_logging(level="debug", ring_size=100)

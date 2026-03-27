@@ -177,3 +177,45 @@ class TestCacheDisabled:
         c = app.test_client()
         resp = c.get("/api/cache")
         assert resp.get_json()["enabled"] is False
+
+
+class TestLogsLimitCapped:
+    def test_limit_capped_at_500(self, client):
+        c, _, ring = client
+        import logging
+        logger = logging.getLogger("test.api.logs.cap")
+        logger.addHandler(ring)
+        logger.setLevel(logging.DEBUG)
+        for i in range(600):
+            logger.info(f"msg {i}")
+        resp = c.get("/api/logs?limit=9999")
+        data = resp.get_json()
+        assert len(data["entries"]) <= 500
+
+
+class TestSettingsIncludesPlaylistUrl:
+    def test_includes_url_when_set(self):
+        from cinegatto.api.routes import api, init_api
+        from flask import Flask
+        app = Flask(__name__)
+        controller = MagicMock()
+        controller.get_settings.return_value = {"shuffle": True, "random_start": True}
+        init_api(controller, playlist_url="https://youtube.com/playlist?list=TEST")
+        app.register_blueprint(api)
+        c = app.test_client()
+        resp = c.get("/api/settings")
+        data = resp.get_json()
+        assert data["playlist_url"] == "https://youtube.com/playlist?list=TEST"
+
+    def test_excludes_url_when_not_set(self):
+        from cinegatto.api.routes import api, init_api
+        from flask import Flask
+        app = Flask(__name__)
+        controller = MagicMock()
+        controller.get_settings.return_value = {"shuffle": True, "random_start": True}
+        init_api(controller, playlist_url=None)
+        app.register_blueprint(api)
+        c = app.test_client()
+        resp = c.get("/api/settings")
+        data = resp.get_json()
+        assert "playlist_url" not in data

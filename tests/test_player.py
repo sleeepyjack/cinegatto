@@ -319,3 +319,59 @@ class TestMpvPlayer:
 
         player.shutdown()
         assert not os.path.exists(sock_path)
+
+
+class TestMpvPlayerEvents:
+    """Test event handler logic without real mpv."""
+
+    def _make_player_with_callbacks(self, on_video_end=None):
+        """Create a player with mocked IPC, register event handlers, return (player, ipc)."""
+        mock_ipc = MagicMock()
+        # Capture on_event registrations
+        handlers = {}
+        def fake_on_event(name, cb):
+            handlers.setdefault(name, []).append(cb)
+        mock_ipc.on_event.side_effect = fake_on_event
+
+        player = MpvPlayer(mpv_args=[], socket_path="/tmp/test.sock",
+                           on_video_end=on_video_end)
+        player._ipc = mock_ipc
+        player._running = True
+        player._seeking = False
+        player._register_event_handlers()
+        return player, handlers
+
+    def test_end_file_eof_triggers_on_video_end(self):
+        called = []
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: called.append(True))
+        handlers["end-file"][0]({"event": "end-file", "reason": "eof"})
+        assert called == [True]
+
+    def test_end_file_error_schedules_deferred_retry(self):
+        called = []
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: called.append(True))
+        handlers["end-file"][0]({"event": "end-file", "reason": "error", "file_error": "test"})
+        # Should NOT call immediately (deferred via timer)
+        assert called == []
+        # But consecutive errors should increment
+        assert player._consecutive_errors == 1
+
+    def test_end_file_ignored_while_seeking(self):
+        called = []
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: called.append(True))
+        player._seeking = True
+        handlers["end-file"][0]({"event": "end-file", "reason": "error", "file_error": "test"})
+        assert called == []
+        assert player._consecutive_errors == 0
+
+    def test_end_file_stop_reason_ignored(self):
+        called = []
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: called.append(True))
+        handlers["end-file"][0]({"event": "end-file", "reason": "stop"})
+        assert called == []
+
+    def test_playback_restart_clears_seeking(self):
+        player, handlers = self._make_player_with_callbacks(on_video_end=lambda: None)
+        player._seeking = True
+        handlers["playback-restart"][0]({"event": "playback-restart"})
+        assert player._seeking is False
