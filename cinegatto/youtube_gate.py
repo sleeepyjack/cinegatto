@@ -23,7 +23,7 @@ import time
 
 logger = logging.getLogger("cinegatto.youtube_gate")
 
-_DEFAULT_COOLDOWN = 600  # 10 minutes
+_DEFAULT_COOLDOWN = 1800  # 30 minutes
 _DEFAULT_THRESHOLD = 3   # failures before tripping
 
 

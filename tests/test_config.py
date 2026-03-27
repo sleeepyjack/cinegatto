@@ -15,7 +15,7 @@ class TestLoadConfig:
         assert config["audio"] is False
         assert config["mpv_extra_args"] == []
         assert config["watchdog_timeout_sec"] == 10
-        assert config["log_ring_size"] == 500
+        assert config["log_ring_size"] == 10000
 
     def test_load_config_from_file(self, tmp_path):
         """Loads values from a config file."""

@@ -86,6 +86,65 @@ def update_settings():
     return jsonify(_controller.get_settings())
 
 
+@api.route("/system", methods=["GET"])
+def system_status():
+    """System health: CPU, memory, cache status."""
+    import os
+    from cinegatto.youtube_gate import yt_gate
+
+    # CPU load (1-min avg, normalized to core count)
+    try:
+        load1 = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 4
+        cpu_pct = round(load1 / cpu_count * 100, 1)
+    except OSError:
+        cpu_pct = 0
+
+    # Memory usage
+    mem_pct = 0
+    try:
+        with open("/proc/meminfo") as f:
+            info = {}
+            for line in f:
+                parts = line.split(":")
+                info[parts[0].strip()] = int(parts[1].split()[0])
+            total = info["MemTotal"]
+            avail = info["MemAvailable"]
+            mem_pct = round((1 - avail / total) * 100, 1)
+    except Exception:
+        pass  # macOS or /proc unavailable
+
+    # Temperature (Pi thermal zone)
+    temp_c = 0
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            temp_c = round(int(f.read().strip()) / 1000, 1)
+    except Exception:
+        pass
+
+    # Cache
+    cache_info = {"cache_count": 0, "cache_total": 0, "cache_downloading": False}
+    if _cache_service and _controller:
+        stats = _cache_service.get_stats()
+        max_size = stats["max_size"] or 1
+        cache_info = {
+            "cache_count": stats["count"],
+            "cache_total": len(_controller.get_playlist_entries()),
+            "cache_downloading": stats["current_download"] is not None,
+            "cache_disk_pct": round(stats["total_size"] / max_size * 100, 1),
+            "cache_size_mb": stats["total_size_mb"],
+            "cache_max_mb": stats["max_size_mb"],
+        }
+
+    return jsonify({
+        "cpu_pct": cpu_pct,
+        "mem_pct": mem_pct,
+        "temp_c": temp_c,
+        "yt_blocked": yt_gate.is_blocked(),
+        **cache_info,
+    })
+
+
 @api.route("/cache", methods=["GET"])
 def cache():
     if _cache_service is None:

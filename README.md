@@ -110,7 +110,7 @@ All settings live in `cinegatto.json`. Only override what you need — defaults 
 | `cache_path` | `""` (= `.cache/` in repo) | Cache directory path |
 | `mpv_extra_args` | `[]` | Extra mpv command-line arguments |
 | `watchdog_timeout_sec` | `10` | mpv health check interval (seconds) |
-| `yt_cooldown_sec` | `600` | YouTube circuit breaker cooldown (seconds) |
+| `yt_cooldown_sec` | `1800` | YouTube circuit breaker cooldown (seconds) |
 | `log_level` | `info` | Logging level (debug for development) |
 | `log_file` | `.cinegatto.log` | Log file path (overwritten each run) |
 | `log_ring_size` | `10000` | Max log entries in web UI viewer |

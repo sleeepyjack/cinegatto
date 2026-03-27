@@ -38,7 +38,7 @@ DEFAULTS = {
     "cache_disk_usage_pct": 80,
     "playlist_refresh_sec": 1800,
     "cache_format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-    "yt_cooldown_sec": 600,
+    "yt_cooldown_sec": 1800,
 }
 
 # Type validators — only check type, not semantic validity (e.g., port range).
